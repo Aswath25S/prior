@@ -18,7 +18,7 @@ st.set_page_config(
 STATUS_ORDER = ["In Progress", "Success", "Rejection"]
 ENGAGEMENT_OPTIONS = ["Sales assigned", "Queued — unassigned", "Self-serve", "Completed"]
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-24-search-sort-v1"
+DATA_VERSION = "2026-09-24-team-v2"
 SELF_SERVE_QUALITY_THRESHOLD = 30
 SELF_SERVE_WAIT_HOURS = 14 * 24
 
@@ -488,7 +488,7 @@ with queue_tab:
             "engagement", "status", "owner"
         ]],
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         height=420,
         column_config={
             "score": st.column_config.ProgressColumn(
@@ -594,7 +594,7 @@ with queue_tab:
                 "In Progress = actively being worked · Success = positive commercial outcome · "
                 "Rejection = closed without progressing"
             )
-            if st.button("Save lead", type="primary", use_container_width=True, key=f"save_{lead_id}"):
+            if st.button("Save lead", type="primary", width="stretch", key=f"save_{lead_id}"):
                 row_index = st.session_state.leads.index[st.session_state.leads["lead_id"] == lead_id][0]
                 st.session_state.leads.loc[row_index, "owner_id"] = lead["owner_id"]
                 st.session_state.leads.loc[row_index, "status"] = selected_status
@@ -631,7 +631,7 @@ with team_tab:
             )
 
     st.markdown("#### Workload overview")
-    st.dataframe(pd.DataFrame(workload_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(workload_rows), hide_index=True, width="stretch")
 
 with add_tab:
     st.markdown("### Add and prioritize a lead")
@@ -688,13 +688,13 @@ with add_tab:
         p2.metric("Intent", f"{result['buying_intent']}/35")
         p3.metric("Use case", f"{result['use_case_score']}/25")
         add_col, clear_col = st.columns([1, 1])
-        if add_col.button("Add to priority queue", type="primary", use_container_width=True):
+        if add_col.button("Add to priority queue", type="primary", width="stretch"):
             st.session_state.leads = pd.concat(
                 [st.session_state.leads, pd.DataFrame([pending])], ignore_index=True
             )
             st.session_state.pending_lead = None
             st.rerun()
-        if clear_col.button("Discard", use_container_width=True):
+        if clear_col.button("Discard", width="stretch"):
             st.session_state.pending_lead = None
             st.rerun()
 

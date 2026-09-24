@@ -6,7 +6,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-24-search-sort-v1"
+DATA_VERSION = "2026-09-24-team-v2"
 STATUS_ORDER = ["In Progress", "Success", "Rejection"]
 SELF_SERVE_QUALITY_THRESHOLD = 30
 SELF_SERVE_WAIT_HOURS = 14 * 24

@@ -111,7 +111,7 @@ else:
 st.dataframe(
     portfolio[["score", "name", "company", "waiting", "engagement", "status"]],
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     height=360,
     column_config={
         "score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, width="small"),
@@ -172,7 +172,7 @@ if len(portfolio):
             "In Progress = active · Success = positive commercial outcome · "
             "Rejection = closed without progressing"
         )
-        if st.button("Save progress", type="primary", use_container_width=True, key=f"save_{lead_id}"):
+        if st.button("Save progress", type="primary", width="stretch", key=f"save_{lead_id}"):
             row_index = st.session_state.leads.index[st.session_state.leads["lead_id"] == lead_id][0]
             st.session_state.leads.loc[row_index, "owner_id"] = lead["owner_id"]
             st.session_state.leads.loc[row_index, "status"] = updated_status
