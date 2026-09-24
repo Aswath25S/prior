@@ -144,7 +144,7 @@ if len(portfolio):
             st.write(lead["email"])
             st.write(lead["job_title"])
         with profile_account:
-            st.caption("ACCOUNT")
+            st.caption("COMPANY")
             st.write(f"**{int(lead['company_size']):,} employees**")
             st.write(lead["account_type"])
             st.write(f"Lead ID · {lead['lead_id']}")
@@ -154,7 +154,7 @@ if len(portfolio):
             st.write(received_label)
             st.write(
                 f"{int(lead['account_activity_count'])} activities · "
-                f"{int(lead['same_company_users'])} account user(s)"
+                f"{int(lead['same_company_users'])} company user(s)"
             )
         st.info(lead["inbound_text"])
         c1, c2, c3, c4 = st.columns(4)

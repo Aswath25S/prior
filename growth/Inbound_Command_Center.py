@@ -182,7 +182,7 @@ def score_lead(row):
 
     why = [
         f"Commercial potential: {potential}/40 ({account_type})",
-        f"Buying intent: {intent}/35 ({source}; {activity} recent account activities; {same_company_users} user(s))",
+        f"Buying intent: {intent}/35 ({source}; {activity} recent company activities; {same_company_users} user(s))",
         f"Use-case maturity: {maturity}/25 ({uc['use_case_maturity']})",
     ]
     return {
@@ -390,7 +390,7 @@ st.markdown(
 st.markdown('<div class="eyebrow">Prior Labs · Commercial operations</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero-title">Inbound command center</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="hero-copy">Balance opportunity quality with response time, know who owns each lead, and move every account to a clear next step.</div>',
+    '<div class="hero-copy">Balance opportunity quality with response time, know who owns each lead, and move every company to a clear next step.</div>',
     unsafe_allow_html=True,
 )
 st.page_link("pages/1_Sales_Workspace.py", label="Open salesperson workspace", icon="👤")
@@ -536,7 +536,7 @@ with queue_tab:
                 st.write(lead["job_title"])
                 st.caption(f"Lead ID · {lead['lead_id']}")
             with profile_account:
-                st.caption("ACCOUNT")
+                st.caption("COMPANY")
                 st.write(f"**{lead['company']}**")
                 st.write(f"{int(lead['company_size']):,} employees")
                 st.write(lead["account_type"])
@@ -546,7 +546,7 @@ with queue_tab:
                 st.write(f"**{lead['normalized_source']}**")
                 st.write(f"Received {received_label}")
                 st.write(f"{int(lead['account_activity_count'])} recent activities")
-                st.caption(f"{int(lead['same_company_users'])} user(s) from this account")
+                st.caption(f"{int(lead['same_company_users'])} user(s) from this company")
 
             st.markdown("**What came in**")
             st.info(lead["inbound_text"])
@@ -648,7 +648,7 @@ with add_tab:
             source = st.selectbox(
                 "Source", ["SAP", "Direct website", "Free API", "Open-source / GitHub", "Other"]
             )
-            activity = st.number_input("Recent account activities", min_value=1, value=2)
+            activity = st.number_input("Recent company activities", min_value=1, value=2)
             same_users = st.number_input("Users from same company", min_value=1, value=1)
             inbound_text = st.text_area(
                 "What they said or did",
@@ -704,7 +704,7 @@ with method_tab:
         """
 The system asks three simple questions:
 
-1. **Commercial potential** — How valuable could the account be?
+1. **Commercial potential** — How valuable could the company be?
 2. **Buying intent** — What evidence suggests active commercial evaluation?
 3. **Use-case maturity** — How concrete and deployment-ready is the problem?
 

@@ -53,4 +53,4 @@ streamlit run Inbound_Command_Center.py
 - One final priority score combines lead quality (85 points) and waiting-time urgency (15 points).
 - Sales capacity is allocated to eligible leads in descending score order. Low-quality leads move to self-serve only after 14 days.
 - In Progress leads consume active capacity. Success and Rejection are completed outcomes that release capacity while retaining the salesperson who handled the lead.
-- In production, individual events should be resolved to an account so multiple users from one company become one stronger commercial signal.
+- In production, individual events should be resolved to a company so multiple users from that company become one stronger commercial signal.

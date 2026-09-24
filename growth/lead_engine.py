@@ -164,7 +164,7 @@ def score_lead(row):
         "confidence": completeness,
         "why": " | ".join([
             f"Commercial potential: {potential}/40 ({account_type})",
-            f"Buying intent: {intent}/35 ({source}; {activity} recent account activities; {same_company_users} user(s))",
+            f"Buying intent: {intent}/35 ({source}; {activity} recent company activities; {same_company_users} user(s))",
             f"Use-case maturity: {maturity}/25 ({use_case['use_case_maturity']})",
         ]),
     }
