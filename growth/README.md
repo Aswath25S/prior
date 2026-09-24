@@ -18,6 +18,7 @@ A lightweight working prototype for the inbound-interest case.
 9. A form to simulate a new inbound lead live during the demo.
 10. A self-serve rule for leads with quality below 30 that have waited at least 14 days.
 11. Three clear lifecycle statuses: In Progress, Success, and Rejection.
+12. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
 
 The names in `sales_team.csv` are fictional and exist only to demonstrate the operating workflow. All salespeople are interchangeable in this first version; initial calls are assigned to whoever has the most capacity left.
 
@@ -28,7 +29,7 @@ cd growth
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run Inbound_Command_Center.py
 ```
 
 ## Suggested CEO demo flow (5 minutes)
@@ -40,8 +41,9 @@ streamlit run app.py
 4. Open L003 or L004 to show why product/open-source activity can still reveal an enterprise opportunity.
 5. Open L008 to show an obvious self-serve case.
 6. Show L008 or L010 to demonstrate the low-quality + 14-day self-serve rule, then show team workload.
-7. Use "Add a lead" and type a new example live.
-8. End with: "Every sales decision becomes training data for better rules later."
+7. Open the salesperson workspace, choose a rep, and update one lead to Success or Rejection.
+8. Use "Add a lead" and type a new example live.
+9. End with: "Every sales decision becomes training data for better rules later."
 
 ## Important prototype choices
 

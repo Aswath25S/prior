@@ -4,6 +4,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from lead_engine import build_lead_view
+
 st.set_page_config(
     page_title="Prior Labs — Inbound Triage Copilot",
     page_icon="⚡",
@@ -304,8 +306,7 @@ team = load_sales_team()
 owner_names = dict(zip(team["salesperson_id"], team["name"]))
 owner_names["UNASSIGNED"] = "Unassigned"
 
-df = assign_salespeople(add_time_metrics(enrich_df(st.session_state.leads)), team)
-df["owner"] = df["owner_id"].map(owner_names).fillna("Unassigned")
+df = build_lead_view(st.session_state.leads, team)
 df = df.sort_values(
     ["score", "qualification_score", "received_at"], ascending=[False, False, True]
 ).reset_index(drop=True)
@@ -392,6 +393,7 @@ st.markdown(
     '<div class="hero-copy">Balance opportunity quality with response time, know who owns each lead, and move every account to a clear next step.</div>',
     unsafe_allow_html=True,
 )
+st.page_link("pages/1_Sales_Workspace.py", label="Open salesperson workspace", icon="👤")
 
 sales_assigned_count = int((df["engagement"] == "Sales assigned").sum())
 self_serve_count = int((df["engagement"] == "Self-serve").sum())
@@ -414,7 +416,7 @@ with queue_tab:
     f1, f2, f3, f4, f5 = st.columns([1.6, 1.25, 1.15, 1.05, 1.25])
     with f1:
         search = st.text_input(
-            "Search", placeholder="Account, person, or title", key=f"search_{DATA_VERSION}"
+            "Search", placeholder="Name, company, or title", key=f"search_{DATA_VERSION}"
         )
     with f2:
         sort_by = st.selectbox(
@@ -424,7 +426,8 @@ with queue_tab:
                 "Priority score — lowest first",
                 "Waiting time — longest first",
                 "Inbound time — newest first",
-                "Account — A to Z",
+                "Name — A to Z",
+                "Company — A to Z",
             ],
             key=f"sort_by_{DATA_VERSION}",
         )
@@ -474,12 +477,14 @@ with queue_tab:
         view = view.sort_values(["waiting_hours", "score"], ascending=[False, False])
     elif sort_by == "Inbound time — newest first":
         view = view.sort_values(["received_at", "score"], ascending=[False, False])
+    elif sort_by == "Name — A to Z":
+        view = view.sort_values("name", key=lambda values: values.str.lower())
     else:
-        view = view.sort_values(["company", "score"], ascending=[True, False], key=lambda col: col.str.lower() if col.name == "company" else col)
+        view = view.sort_values("company", key=lambda values: values.str.lower())
 
     st.dataframe(
         view[[
-            "score", "company", "received_at", "waiting",
+            "score", "name", "company", "received_at", "waiting",
             "engagement", "status", "owner"
         ]],
         hide_index=True,
@@ -490,7 +495,8 @@ with queue_tab:
                 "Priority score", min_value=0, max_value=100, width="small",
                 help="Commercial potential + buying intent + use-case maturity + waiting time",
             ),
-            "company": st.column_config.TextColumn("Account", width="medium"),
+            "name": st.column_config.TextColumn("Name", width="medium"),
+            "company": st.column_config.TextColumn("Company", width="medium"),
             "received_at": st.column_config.DatetimeColumn(
                 "Received", format="MMM D, h:mm a", width="medium"
             ),
@@ -504,7 +510,7 @@ with queue_tab:
     if len(view):
         st.markdown("### Lead details & next action")
         lead_options = {
-            f"{int(row.score):02d} · {row.company} · {row.waiting} waiting": row.lead_id
+            f"{row['name']} · {row['company']} · score {int(row['score']):02d} · {row['waiting']} waiting": row["lead_id"]
             for _, row in view.iterrows()
         }
         selected_label = st.selectbox("Open lead", list(lead_options.keys()))
@@ -512,7 +518,7 @@ with queue_tab:
         lead = df[df["lead_id"] == lead_id].iloc[0]
 
         st.markdown(
-            f'<div class="priority-card"><h3>{lead["company"]} · priority score {int(lead["score"])}/100</h3>'
+                f'<div class="priority-card"><h3>{lead["name"]} · {lead["company"]} · priority score {int(lead["score"])}/100</h3>'
             f'<div class="muted">{lead["engagement"]} &nbsp;·&nbsp; '
             f'{lead["waiting"]} waiting &nbsp;·&nbsp; {lead["owner"]}</div></div>',
             unsafe_allow_html=True,
@@ -520,6 +526,28 @@ with queue_tab:
 
         detail_col, action_col = st.columns([1.65, 1])
         with detail_col:
+            received_label = lead["received_at"].strftime("%b %d, %Y · %I:%M %p UTC")
+            st.markdown("**Lead profile**")
+            profile_contact, profile_account, profile_activity = st.columns(3)
+            with profile_contact:
+                st.caption("CONTACT")
+                st.write(f"**{lead['name']}**")
+                st.write(lead["email"])
+                st.write(lead["job_title"])
+                st.caption(f"Lead ID · {lead['lead_id']}")
+            with profile_account:
+                st.caption("ACCOUNT")
+                st.write(f"**{lead['company']}**")
+                st.write(f"{int(lead['company_size']):,} employees")
+                st.write(lead["account_type"])
+                st.caption(f"Persona · {lead['persona']}")
+            with profile_activity:
+                st.caption("ACTIVITY")
+                st.write(f"**{lead['normalized_source']}**")
+                st.write(f"Received {received_label}")
+                st.write(f"{int(lead['account_activity_count'])} recent activities")
+                st.caption(f"{int(lead['same_company_users'])} user(s) from this account")
+
             st.markdown("**What came in**")
             st.info(lead["inbound_text"])
             s1, s2, s3 = st.columns(3)
@@ -647,7 +675,7 @@ with add_tab:
         candidate_leads = pd.concat(
             [st.session_state.leads, pd.DataFrame([pending])], ignore_index=True
         )
-        candidate_df = assign_salespeople(add_time_metrics(enrich_df(candidate_leads)), team)
+        candidate_df = build_lead_view(candidate_leads, team)
         result = candidate_df[candidate_df["lead_id"] == pending["lead_id"]].iloc[0]
         pending_owner = owner_names[result["owner_id"]]
         st.markdown(
