@@ -1,6 +1,22 @@
+import importlib
+
+import pandas as pd
 import streamlit as st
 
-from lead_engine import DATA_VERSION, STATUS_ORDER, build_lead_view, load_leads, load_sales_team
+import lead_engine
+
+
+# Streamlit can retain imported modules while switching pages during development.
+# Reload the shared engine so newly added workflow fields are available immediately.
+lead_engine = importlib.reload(lead_engine)
+DATA_VERSION = lead_engine.DATA_VERSION
+MEETING_STATUS_ORDER = lead_engine.MEETING_STATUS_ORDER
+STATUS_ORDER = lead_engine.STATUS_ORDER
+build_lead_view = lead_engine.build_lead_view
+load_leads = lead_engine.load_leads
+load_sales_team = lead_engine.load_sales_team
+record_calendly_invites = lead_engine.record_calendly_invites
+sync_meeting_statuses = lead_engine.sync_meeting_statuses
 
 
 st.set_page_config(
@@ -47,6 +63,10 @@ if st.session_state.get("data_version") != DATA_VERSION or "leads" not in st.ses
     st.session_state.data_version = DATA_VERSION
 
 team = load_sales_team()
+lead_view = build_lead_view(st.session_state.leads, team)
+new_invites = record_calendly_invites(st.session_state.leads, lead_view, team)
+if new_invites:
+    st.session_state.setdefault("email_outbox", []).extend(new_invites)
 lead_view = build_lead_view(st.session_state.leads, team)
 
 st.markdown('<div class="workspace-label">Prior Labs · Sales</div>', unsafe_allow_html=True)
@@ -157,11 +177,6 @@ if len(portfolio):
                 f"{int(lead['same_company_users'])} company user(s)"
             )
         st.info(lead["inbound_text"])
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Priority", f"{int(lead['score'])}/100")
-        c2.metric("Potential", f"{int(lead['commercial_potential'])}/40")
-        c3.metric("Intent", f"{int(lead['buying_intent'])}/35")
-        c4.metric("Use case", f"{int(lead['use_case_score'])}/25")
     with update_col:
         st.markdown("#### Progress")
         current_status = lead["status"] if lead["status"] in STATUS_ORDER else "In Progress"
@@ -172,11 +187,70 @@ if len(portfolio):
             "In Progress = active · Success = positive commercial outcome · "
             "Rejection = closed without progressing"
         )
+        st.markdown("#### Meeting")
+        current_meeting_status = (
+            lead["meeting_status"]
+            if lead["meeting_status"] in MEETING_STATUS_ORDER
+            else "Invite sent"
+        )
+        sent_at = pd.to_datetime(lead["calendly_sent_at"], utc=True, errors="coerce")
+        sent_label = sent_at.strftime("%b %d, %Y · %I:%M %p UTC") if pd.notna(sent_at) else "Not sent"
+        meeting_start = pd.to_datetime(lead["meeting_start_at"], utc=True, errors="coerce")
+        st.info(f"Meeting status: **{current_meeting_status}**")
+        st.caption(f"Calendly invitation sent to {lead['email']} · {sent_label}")
+        if (
+            current_meeting_status in {"Scheduled", "In progress"}
+            and pd.notna(meeting_start)
+            and lead["meeting_join_url"]
+        ):
+            meeting_label = meeting_start.strftime("%b %d, %Y · %I:%M %p UTC")
+            st.success(f"Meeting scheduled for {meeting_label}")
+            st.link_button(
+                f"Join meeting · {meeting_label}", lead["meeting_join_url"], width="stretch"
+            )
+        elif lead["calendly_url"]:
+            st.link_button("Open salesperson Calendly", lead["calendly_url"], width="stretch")
+
+        with st.expander("Demo: simulate a Calendly booking"):
+            default_start = (
+                pd.Timestamp.now(tz="UTC").normalize()
+                + pd.Timedelta(days=1, hours=10)
+            )
+            booking_date = st.date_input(
+                "Meeting date", value=default_start.date(), key=f"booking_date_{lead_id}"
+            )
+            booking_time = st.time_input(
+                "Meeting time (UTC)", value=default_start.time(), key=f"booking_time_{lead_id}"
+            )
+            join_url = st.text_input(
+                "Join URL",
+                value=f"https://meet.google.com/lookup/prior-{lead_id.lower()}",
+                key=f"join_url_{lead_id}",
+            )
+            if st.button("Record demo booking", width="stretch", key=f"book_{lead_id}"):
+                row_index = st.session_state.leads.index[
+                    st.session_state.leads["lead_id"] == lead_id
+                ][0]
+                scheduled_start = pd.Timestamp.combine(booking_date, booking_time).tz_localize("UTC")
+                st.session_state.leads.loc[
+                    row_index, "meeting_start_at"
+                ] = scheduled_start.isoformat()
+                st.session_state.leads.loc[
+                    row_index, "meeting_end_at"
+                ] = (scheduled_start + pd.Timedelta(minutes=30)).isoformat()
+                st.session_state.leads.loc[row_index, "meeting_join_url"] = join_url
+                sync_meeting_statuses(st.session_state.leads)
+                st.rerun()
+
+        st.caption(
+            "Meeting status is derived automatically from Calendly event times. "
+            "The demo booking control stands in for a production webhook."
+        )
         if st.button("Save progress", type="primary", width="stretch", key=f"save_{lead_id}"):
             row_index = st.session_state.leads.index[st.session_state.leads["lead_id"] == lead_id][0]
             st.session_state.leads.loc[row_index, "owner_id"] = lead["owner_id"]
             st.session_state.leads.loc[row_index, "status"] = updated_status
-            st.success("Progress updated. Capacity and assignments have been recalculated.")
+            st.success("Lead progress updated. Capacity and assignments have been recalculated.")
             st.rerun()
 else:
     st.info("No leads match these filters for this salesperson.")

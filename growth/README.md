@@ -19,6 +19,7 @@ A lightweight working prototype for the inbound-interest case.
 10. A self-serve rule for leads with quality below 30 that have waited at least 14 days.
 11. Three clear lifecycle statuses: In Progress, Success, and Rejection.
 12. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
+13. Automatic demo Calendly emails on assignment, with event-driven meeting status and a future-meeting join button in the salesperson workspace.
 
 The names in `sales_team.csv` are fictional and exist only to demonstrate the operating workflow. All salespeople are interchangeable in this first version; initial calls are assigned to whoever has the most capacity left.
 
@@ -53,4 +54,5 @@ streamlit run Inbound_Command_Center.py
 - One final priority score combines lead quality (85 points) and waiting-time urgency (15 points).
 - Sales capacity is allocated to eligible leads in descending score order. Low-quality leads move to self-serve only after 14 days.
 - In Progress leads consume active capacity. Success and Rejection are completed outcomes that release capacity while retaining the salesperson who handled the lead.
+- Calendly delivery and bookings are simulated in-session for the prototype. Production would connect the same assignment event to an email provider and use Calendly webhooks to supply meeting times, cancellations, and conference URLs.
 - In production, individual events should be resolved to a company so multiple users from that company become one stronger commercial signal.

@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from lead_engine import build_lead_view
+from lead_engine import build_lead_view, record_calendly_invites
 
 st.set_page_config(
     page_title="Prior Labs — Inbound Triage Copilot",
@@ -18,7 +18,7 @@ st.set_page_config(
 STATUS_ORDER = ["In Progress", "Success", "Rejection"]
 ENGAGEMENT_OPTIONS = ["Sales assigned", "Queued — unassigned", "Self-serve", "Completed"]
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-24-team-v2"
+DATA_VERSION = "2026-09-24-calendar-sync-v4"
 SELF_SERVE_QUALITY_THRESHOLD = 30
 SELF_SERVE_WAIT_HOURS = 14 * 24
 
@@ -306,6 +306,10 @@ team = load_sales_team()
 owner_names = dict(zip(team["salesperson_id"], team["name"]))
 owner_names["UNASSIGNED"] = "Unassigned"
 
+df = build_lead_view(st.session_state.leads, team)
+new_invites = record_calendly_invites(st.session_state.leads, df, team)
+if new_invites:
+    st.session_state.setdefault("email_outbox", []).extend(new_invites)
 df = build_lead_view(st.session_state.leads, team)
 df = df.sort_values(
     ["score", "qualification_score", "received_at"], ascending=[False, False, True]

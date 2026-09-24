@@ -6,8 +6,11 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-24-team-v2"
+DATA_VERSION = "2026-09-24-calendar-sync-v4"
 STATUS_ORDER = ["In Progress", "Success", "Rejection"]
+MEETING_STATUS_ORDER = [
+    "Invite sent", "Scheduled", "In progress", "Completed", "No-show", "Cancelled"
+]
 SELF_SERVE_QUALITY_THRESHOLD = 30
 SELF_SERVE_WAIT_HOURS = 14 * 24
 
@@ -18,6 +21,103 @@ def load_leads():
 
 def load_sales_team():
     return pd.read_csv(APP_DIR / "sales_team.csv")
+
+
+def sync_meeting_statuses(leads, now=None):
+    """Derive meeting status from Calendly event times on every app refresh."""
+    workflow_defaults = {
+        "meeting_status": "Not invited",
+        "meeting_start_at": "",
+        "meeting_end_at": "",
+        "meeting_join_url": "",
+    }
+    for column, default in workflow_defaults.items():
+        if column not in leads.columns:
+            leads[column] = default
+        else:
+            leads[column] = leads[column].fillna(default)
+
+    current_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+    if current_time.tzinfo is None:
+        current_time = current_time.tz_localize("UTC")
+    else:
+        current_time = current_time.tz_convert("UTC")
+
+    changes = 0
+    for lead_index, lead in leads.iterrows():
+        if lead["meeting_status"] in {"Cancelled", "No-show"}:
+            continue
+        start_at = pd.to_datetime(lead["meeting_start_at"], utc=True, errors="coerce")
+        if pd.isna(start_at):
+            continue
+        end_at = pd.to_datetime(lead["meeting_end_at"], utc=True, errors="coerce")
+        if pd.isna(end_at):
+            end_at = start_at + pd.Timedelta(minutes=30)
+            leads.at[lead_index, "meeting_end_at"] = end_at.isoformat()
+
+        if current_time < start_at:
+            derived_status = "Scheduled"
+        elif current_time <= end_at:
+            derived_status = "In progress"
+        else:
+            derived_status = "Completed"
+
+        if lead["meeting_status"] != derived_status:
+            leads.at[lead_index, "meeting_status"] = derived_status
+            changes += 1
+
+    return changes
+
+
+def record_calendly_invites(leads, lead_view, sales_team):
+    """Record one demo Calendly email whenever a lead receives a sales owner."""
+    workflow_defaults = {
+        "meeting_status": "Not invited",
+        "calendly_sent_at": "",
+        "calendly_owner_id": "",
+        "meeting_start_at": "",
+        "meeting_end_at": "",
+        "meeting_join_url": "",
+    }
+    for column, default in workflow_defaults.items():
+        if column not in leads.columns:
+            leads[column] = default
+        else:
+            leads[column] = leads[column].fillna(default)
+
+    calendly_by_owner = dict(zip(sales_team["salesperson_id"], sales_team["calendly_url"]))
+    salesperson_by_owner = dict(zip(sales_team["salesperson_id"], sales_team["name"]))
+    sent_at = pd.Timestamp.now(tz="UTC").isoformat()
+    outbox = []
+
+    for _, assigned_lead in lead_view.iterrows():
+        owner_id = assigned_lead["owner_id"]
+        if assigned_lead["engagement"] != "Sales assigned" or owner_id not in calendly_by_owner:
+            continue
+
+        lead_matches = leads.index[leads["lead_id"] == assigned_lead["lead_id"]]
+        if len(lead_matches) == 0:
+            continue
+        lead_index = lead_matches[0]
+        if leads.at[lead_index, "calendly_owner_id"] == owner_id:
+            continue
+
+        calendly_url = calendly_by_owner[owner_id]
+        salesperson = salesperson_by_owner[owner_id]
+        leads.at[lead_index, "meeting_status"] = "Invite sent"
+        leads.at[lead_index, "calendly_sent_at"] = sent_at
+        leads.at[lead_index, "calendly_owner_id"] = owner_id
+        outbox.append({
+            "lead_id": assigned_lead["lead_id"],
+            "to": assigned_lead["email"],
+            "subject": f"Book time with {salesperson} at Prior Labs",
+            "calendly_url": calendly_url,
+            "sent_at": sent_at,
+            "delivery": "Demo email recorded",
+        })
+
+    sync_meeting_statuses(leads)
+    return outbox
 
 
 def normalize_source(source):
@@ -233,4 +333,6 @@ def build_lead_view(leads, sales_team):
     owner_names = dict(zip(sales_team["salesperson_id"], sales_team["name"]))
     owner_names["UNASSIGNED"] = "Unassigned"
     result["owner"] = result["owner_id"].map(owner_names).fillna("Unassigned")
+    calendly_links = dict(zip(sales_team["salesperson_id"], sales_team["calendly_url"]))
+    result["calendly_url"] = result["owner_id"].map(calendly_links).fillna("")
     return result.reset_index(drop=True)
