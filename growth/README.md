@@ -20,18 +20,28 @@ A lightweight working prototype for the inbound-interest case.
 11. Three clear lifecycle statuses: In Progress, Success, and Rejection.
 12. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
 13. Automatic demo Calendly emails on assignment, with event-driven meeting status and a future-meeting join button in the salesperson workspace.
+14. Automatic call preparation for booked meetings, using structured OpenAI output when configured and a fact-based fallback otherwise.
 
 The names in `sales_team.csv` are fictional and exist only to demonstrate the operating workflow. All salespeople are interchangeable in this first version; initial calls are assigned to whoever has the most capacity left.
 
 ## Run locally
 
 ```bash
-cd growth
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run Inbound_Command_Center.py
+cd prior
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r growth/requirements.txt
+streamlit run growth/Inbound_Command_Center.py
 ```
+
+To enable AI-generated call preparation, set an OpenAI API key before starting Streamlit:
+
+```bash
+export OPENAI_API_KEY="your_api_key_here"
+# Optional: override the default call-preparation model.
+export OPENAI_CALL_PREP_MODEL="gpt-6-astra"
+```
+
+Without an API key, the booked-meeting workflow remains fully usable and displays a clearly labelled fact-based brief.
 
 ## Suggested CEO demo flow (5 minutes)
 
@@ -55,4 +65,5 @@ streamlit run Inbound_Command_Center.py
 - Sales capacity is allocated to eligible leads in descending score order. Low-quality leads move to self-serve only after 14 days.
 - In Progress leads consume active capacity. Success and Rejection are completed outcomes that release capacity while retaining the salesperson who handled the lead.
 - Calendly delivery and bookings are simulated in-session for the prototype. Production would connect the same assignment event to an email provider and use Calendly webhooks to supply meeting times, cancellations, and conference URLs.
+- Call preparation is generated only for scheduled or in-progress meetings, cached per lead input, and never treats inferred context as verified company information.
 - In production, individual events should be resolved to a company so multiple users from that company become one stronger commercial signal.

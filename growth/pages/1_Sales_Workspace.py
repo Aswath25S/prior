@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import lead_engine
+from call_prep import call_prep_fingerprint, generate_call_prep
 
 
 # Streamlit can retain imported modules while switching pages during development.
@@ -153,6 +154,11 @@ if len(portfolio):
     lead_id = lead_options[selected_label]
     lead = lead_view[lead_view["lead_id"] == lead_id].iloc[0]
     received_label = lead["received_at"].strftime("%b %d, %Y · %I:%M %p UTC")
+    current_meeting_status = (
+        lead["meeting_status"]
+        if lead["meeting_status"] in MEETING_STATUS_ORDER
+        else "Invite sent"
+    )
 
     context_col, update_col = st.columns([1.7, 1])
     with context_col:
@@ -177,6 +183,74 @@ if len(portfolio):
                 f"{int(lead['same_company_users'])} company user(s)"
             )
         st.info(lead["inbound_text"])
+
+        if current_meeting_status in {"Scheduled", "In progress"}:
+            st.markdown("### Call preparation")
+            fingerprint = call_prep_fingerprint(lead)
+            briefs = st.session_state.setdefault("call_prep_briefs", {})
+            cached = briefs.get(lead_id)
+            should_generate = not cached or cached.get("fingerprint") != fingerprint
+            if should_generate:
+                with st.spinner("Preparing the call brief…"):
+                    brief, metadata = generate_call_prep(lead)
+                cached = {
+                    "fingerprint": fingerprint,
+                    "brief": brief,
+                    "metadata": metadata,
+                }
+                briefs[lead_id] = cached
+
+            brief = cached["brief"]
+            metadata = cached["metadata"]
+            generated_at = pd.to_datetime(
+                metadata["generated_at"], utc=True, errors="coerce"
+            )
+            generated_label = (
+                generated_at.strftime("%b %d, %Y · %I:%M %p UTC")
+                if pd.notna(generated_at)
+                else "Unknown"
+            )
+            mode_label = "AI-generated" if metadata["mode"] == "ai" else "Fact-based preview"
+            st.caption(f"{mode_label} · Generated {generated_label}")
+            st.info(brief["summary"])
+
+            st.markdown("**Meeting objective**")
+            st.write(brief["meeting_objective"])
+            st.markdown("**Likely use case**")
+            st.write(brief["use_case_hypothesis"])
+
+            signals_col, gaps_col = st.columns(2)
+            with signals_col:
+                st.markdown("**Buying signals**")
+                for signal in brief["buying_signals"]:
+                    st.markdown(f"- {signal}")
+            with gaps_col:
+                st.markdown("**Information to confirm**")
+                for gap in brief["information_gaps"]:
+                    st.markdown(f"- {gap}")
+
+            with st.expander("Discovery questions", expanded=True):
+                for index, question in enumerate(brief["discovery_questions"], start=1):
+                    st.markdown(f"{index}. {question}")
+            with st.expander("Suggested agenda"):
+                for index, agenda_item in enumerate(brief["suggested_agenda"], start=1):
+                    st.markdown(f"{index}. {agenda_item}")
+            with st.expander("Risks to address"):
+                for risk in brief["risks"]:
+                    st.markdown(f"- {risk}")
+
+            st.markdown("**Desired next step**")
+            st.success(brief["desired_next_step"])
+            st.caption(metadata["notice"])
+            if st.button("Regenerate call brief", width="stretch", key=f"regenerate_{lead_id}"):
+                with st.spinner("Regenerating the call brief…"):
+                    brief, metadata = generate_call_prep(lead)
+                briefs[lead_id] = {
+                    "fingerprint": fingerprint,
+                    "brief": brief,
+                    "metadata": metadata,
+                }
+                st.rerun()
     with update_col:
         st.markdown("#### Progress")
         current_status = lead["status"] if lead["status"] in STATUS_ORDER else "In Progress"
@@ -188,11 +262,6 @@ if len(portfolio):
             "Rejection = closed without progressing"
         )
         st.markdown("#### Meeting")
-        current_meeting_status = (
-            lead["meeting_status"]
-            if lead["meeting_status"] in MEETING_STATUS_ORDER
-            else "Invite sent"
-        )
         sent_at = pd.to_datetime(lead["calendly_sent_at"], utc=True, errors="coerce")
         sent_label = sent_at.strftime("%b %d, %Y · %I:%M %p UTC") if pd.notna(sent_at) else "Not sent"
         meeting_start = pd.to_datetime(lead["meeting_start_at"], utc=True, errors="coerce")
