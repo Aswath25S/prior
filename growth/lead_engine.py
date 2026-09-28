@@ -7,7 +7,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-28-score-ranked-capacity-v20"
+DATA_VERSION = "2026-09-28-full-range-scoring-v22"
 STATUS_ORDER = ["In Progress", "Success", "Rejected"]
 SUCCESS_MILESTONES = ["Commercial win"]
 REJECTION_REASONS = [
@@ -339,7 +339,8 @@ def classify_persona(title):
     return "Other / unknown"
 
 
-def classify_use_case(text):
+def classify_use_case_maturity(text):
+    """Classify technical and operational readiness without inferring purchase intent."""
     text = safe_text(text).lower()
     noncommercial = any(term in text for term in [
         "school project", "class project", "student project", "personal project",
@@ -358,15 +359,6 @@ def classify_use_case(text):
         "clinical", "churn", "claims", "propensity", "quality", "failure",
         "underwriting",
     ])
-    commercial = any(term in text for term in [
-        "pricing", "quote", "contract", "buy", "purchase", "sales", "demo",
-        "security", "procurement", "license", "commercial",
-    ])
-    negative_intent = any(term in text for term in [
-        "no active project", "not buying", "no commercial use", "learning only",
-        "personal side project", "just me exploring", "no specific prod project",
-    ])
-
     if noncommercial:
         maturity, maturity_score = "Non-commercial", 0
     elif production:
@@ -383,26 +375,43 @@ def classify_use_case(text):
     return {
         "use_case_maturity": maturity,
         "use_case_score": maturity_score,
-        "explicit_commercial_language": commercial,
-        "production_signal": production,
-        "evaluation_signal": evaluation,
-        "negative_intent_signal": negative_intent,
     }
+
+
+def detect_commercial_intent(text):
+    """Return true only for explicit purchasing or commercial-process language."""
+    text = safe_text(text).lower()
+    return any(term in text for term in [
+        "pricing", "price quote", "quote", "contract", "buy", "purchase",
+        "procurement", "license",
+    ])
+
+
+def detect_negative_intent(text):
+    """Detect language explicitly distancing the contact from an active purchase."""
+    text = safe_text(text).lower()
+    return any(term in text for term in [
+        "no active project", "not buying", "no commercial use", "learning only",
+        "personal side project", "just me exploring", "no specific prod project",
+    ])
 
 
 def score_lead(row):
     source = normalize_source(row.get("source", ""))
     account_type = classify_account_type(row.get("company_size", 0))
     persona = classify_persona(row.get("job_title", ""))
-    use_case = classify_use_case(row.get("inbound_text", ""))
+    inbound_text = row.get("inbound_text", "")
+    use_case = classify_use_case_maturity(inbound_text)
+    commercial_intent = detect_commercial_intent(inbound_text)
+    negative_intent = detect_negative_intent(inbound_text)
     size = safe_int(row.get("company_size", 0))
 
     if size >= 5000:
-        potential = 32
+        potential = 35
     elif size >= 500:
-        potential = 24
+        potential = 25
     elif size >= 50:
-        potential = 14
+        potential = 15
     elif size > 0:
         potential = 7
     else:
@@ -412,15 +421,15 @@ def score_lead(row):
     potential = min(potential, 40)
 
     intent = {"SAP": 10, "Direct website": 8, "Free API": 5, "Open-source / GitHub": 2, "Other": 3}[source]
-    if use_case["explicit_commercial_language"]:
+    if commercial_intent:
         intent += 10
     activity = safe_int(row.get("account_activity_signal", row.get("account_activity_count", 1)), 1)
     known_contacts = safe_int(row.get("account_contact_count", 1), 1)
     if activity >= 5:
-        intent += 5
-    if known_contacts >= 3:
         intent += 7
-    if use_case["negative_intent_signal"]:
+    if known_contacts >= 3:
+        intent += 8
+    if negative_intent:
         intent -= 10
     if use_case["use_case_maturity"] == "Non-commercial":
         intent = min(intent, 5)

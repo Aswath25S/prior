@@ -350,7 +350,70 @@ class AssignmentStabilityTest(unittest.TestCase):
 
         self.assertEqual(
             multiple_contacts["buying_intent"],
-            single_contact["buying_intent"] + 7,
+            single_contact["buying_intent"] + 8,
+        )
+
+    def test_maximum_qualification_and_priority_scores_reach_100(self):
+        now = pd.Timestamp("2026-09-28T12:00:00Z")
+        leads = []
+        for number in range(3):
+            lead = self._lead(
+                f"L04{number}",
+                5000,
+                "UNASSIGNED",
+                "Production deployment with pricing and procurement.",
+            )
+            lead["name"] = f"Contact {number}"
+            lead["email"] = f"contact{number}@maximum.example"
+            lead["company"] = "Maximum Corp"
+            lead["job_title"] = "VP of Data"
+            lead["source"] = "SAP"
+            lead["account_activity_count"] = 5
+            lead["inbound_time"] = (now - pd.Timedelta(days=7)).isoformat()
+            leads.append(lead)
+
+        view = build_lead_view(pd.DataFrame(leads), self.team, now=now)
+
+        self.assertEqual(set(view["commercial_potential"]), {40})
+        self.assertEqual(set(view["buying_intent"]), {35})
+        self.assertEqual(set(view["use_case_score"]), {25})
+        self.assertEqual(set(view["qualification_score"]), {100})
+        self.assertEqual(set(view["qualification_points"]), {85})
+        self.assertEqual(set(view["time_points"]), {15})
+        self.assertEqual(set(view["score"]), {100})
+
+    def test_maturity_and_commercial_intent_are_independent(self):
+        inputs = {
+            "company_size": 500,
+            "job_title": "Data Scientist",
+            "source": "Other",
+            "account_activity_count": 1,
+            "account_contact_count": 1,
+        }
+
+        baseline = score_lead({**inputs, "inbound_text": "Need more information."})
+        supporting_context = score_lead({
+            **inputs,
+            "inbound_text": "Would like a demo and security review.",
+        })
+        production_context = score_lead({
+            **inputs,
+            "inbound_text": "Need private cloud deployment for this workflow.",
+        })
+        explicit_purchase = score_lead({
+            **inputs,
+            "inbound_text": "Please share pricing and procurement contract terms.",
+        })
+
+        self.assertEqual(
+            supporting_context["buying_intent"], baseline["buying_intent"]
+        )
+        self.assertEqual(
+            production_context["buying_intent"], baseline["buying_intent"]
+        )
+        self.assertEqual(production_context["use_case_score"], 25)
+        self.assertEqual(
+            explicit_purchase["buying_intent"], baseline["buying_intent"] + 10
         )
 
 
