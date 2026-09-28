@@ -396,98 +396,83 @@ with queue_tab:
         st.info("No leads match these filters. Clear a filter to restore the queue.")
 
 with outcomes_tab:
-    st.markdown("### Outcome learning")
+    st.markdown("### Decision history")
     st.caption(
-        "Compare the original prioritization with structured commercial outcomes. "
-        "These are operational signals for calibration—not statistical proof from a small sample."
+        "Review completed account decisions and the evidence captured when each decision was made."
     )
     completed = account_df[account_df["status"].isin(["Success", "Rejected"])].copy()
-    customer_count = int((completed["qualification_outcome"] == "Qualified").sum())
-    opportunity_count = int(completed["opportunity_created"].fillna(False).astype(bool).sum())
-    resolved_count = len(completed)
-    outcome_metrics = st.columns(4)
-    outcome_metrics[0].metric("Resolved leads", resolved_count)
-    outcome_metrics[1].metric("Customers", customer_count)
-    outcome_metrics[2].metric("Opportunities", opportunity_count)
-    outcome_metrics[3].metric(
-        "Customer conversion",
-        f"{customer_count / resolved_count:.0%}" if resolved_count else "—",
+    successes = completed[completed["status"] == "Success"].copy()
+    rejections = completed[completed["status"] == "Rejected"].copy()
+
+    success_metric, rejection_metric = st.columns(2)
+    success_metric.metric("Successes", len(successes))
+    rejection_metric.metric("Rejections", len(rejections))
+
+    for decisions in (successes, rejections):
+        decisions["decision_at"] = pd.to_datetime(
+            decisions["outcome_recorded_at"], utc=True, errors="coerce"
+        )
+        decisions.sort_values(
+            "decision_at", ascending=False, na_position="last", inplace=True
+        )
+
+    common_column_config = {
+        "account_name": st.column_config.TextColumn("Account", width="medium"),
+        "name": st.column_config.TextColumn("Primary contact", width="medium"),
+        "owner": st.column_config.TextColumn("Sales owner", width="medium"),
+        "normalized_source": st.column_config.TextColumn("Source", width="medium"),
+        "qualification_score_at_outcome": st.column_config.NumberColumn(
+            "Quality score at decision", format="%d"
+        ),
+        "priority_score_at_outcome": st.column_config.NumberColumn(
+            "Priority score at decision", format="%d"
+        ),
+        "pipeline_stage": st.column_config.TextColumn("Final stage", width="medium"),
+        "decision_at": st.column_config.DatetimeColumn(
+            "Decision recorded", format="MMM D, YYYY, h:mm a"
+        ),
+    }
+
+    st.markdown("#### Success")
+    if successes.empty:
+        st.caption("No successful account decisions have been recorded yet.")
+    st.dataframe(
+        successes[[
+            "account_name", "name", "owner", "normalized_source",
+            "qualification_score_at_outcome", "priority_score_at_outcome",
+            "pipeline_stage", "estimated_value_band", "decision_at",
+        ]],
+        hide_index=True,
+        width="stretch",
+        column_config={
+            **common_column_config,
+            "estimated_value_band": st.column_config.TextColumn(
+                "Customer value", width="medium"
+            ),
+        },
     )
 
-    if completed.empty:
-        st.info(
-            "No outcomes have been recorded yet. Close a lead in the salesperson workspace "
-            "to populate this learning view."
-        )
-    else:
-        source_summary = (
-            completed.groupby("normalized_source", as_index=False)
-            .agg(
-                resolved=("lead_id", "count"),
-                customers=("qualification_outcome", lambda values: int((values == "Qualified").sum())),
-                opportunities=("opportunity_created", lambda values: int(values.fillna(False).astype(bool).sum())),
-            )
-            .rename(columns={"normalized_source": "Source"})
-        )
-        source_summary["Customer conversion"] = (
-            source_summary["customers"] / source_summary["resolved"]
-        )
-        st.markdown("#### Outcomes by source")
-        st.dataframe(
-            source_summary,
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "resolved": st.column_config.NumberColumn("Resolved"),
-                "customers": st.column_config.NumberColumn("Customers"),
-                "opportunities": st.column_config.NumberColumn("Opportunities"),
-                "Customer conversion": st.column_config.NumberColumn(
-                    "Customer conversion", format="percent"
-                ),
-            },
-        )
-        scored_outcomes = completed.copy()
-        scored_outcomes["decision_score"] = pd.to_numeric(
-            scored_outcomes["priority_score_at_outcome"], errors="coerce"
-        )
-        scored_outcomes = scored_outcomes.dropna(subset=["decision_score"])
-        if not scored_outcomes.empty:
-            scored_outcomes["Decision band"] = pd.cut(
-                scored_outcomes["decision_score"],
-                bins=[-1, 29, 44, 64, 100],
-                labels=["Self-serve", "Nurture / monitor", "Human review", "Engage now"],
-            )
-            band_summary = (
-                scored_outcomes.groupby("Decision band", observed=True, as_index=False)
-                .agg(
-                    resolved=("lead_id", "count"),
-                    customers=("qualification_outcome", lambda values: int((values == "Qualified").sum())),
-                )
-            )
-            band_summary["Customer conversion"] = (
-                band_summary["customers"] / band_summary["resolved"]
-            )
-            st.markdown("#### Outcomes by original decision band")
-            st.dataframe(
-                band_summary,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Customer conversion": st.column_config.NumberColumn(
-                        "Customer conversion", format="percent"
-                    )
-                },
-            )
-        st.markdown("#### Decision history")
-        st.dataframe(
-            completed[[
-                "name", "company", "normalized_source", "qualification_score_at_outcome",
-                "pipeline_stage", "qualification_outcome", "success_milestone", "disposition_reason",
-                "opportunity_stage", "estimated_value_band", "outcome_recorded_at",
-            ]],
-            hide_index=True,
-            width="stretch",
-        )
+    st.markdown("#### Rejected")
+    if rejections.empty:
+        st.caption("No rejected account decisions have been recorded yet.")
+    st.dataframe(
+        rejections[[
+            "account_name", "name", "owner", "normalized_source",
+            "qualification_score_at_outcome", "priority_score_at_outcome",
+            "pipeline_stage", "disposition_reason", "disposition_notes", "decision_at",
+        ]],
+        hide_index=True,
+        width="stretch",
+        column_config={
+            **common_column_config,
+            "disposition_reason": st.column_config.TextColumn(
+                "Rejection reason", width="medium"
+            ),
+            "disposition_notes": st.column_config.TextColumn(
+                "Decision notes", width="large"
+            ),
+        },
+    )
 
 with team_tab:
     st.markdown("### Commercial team")

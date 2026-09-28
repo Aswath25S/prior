@@ -145,7 +145,7 @@ else:
 st.dataframe(
     portfolio[[
         "score", "name", "account_name", "pipeline_stage", "waiting",
-        "next_action", "status",
+        "status", "next_action",
     ]],
     hide_index=True,
     width="stretch",
@@ -156,8 +156,8 @@ st.dataframe(
         "account_name": st.column_config.TextColumn("Account", width="medium"),
         "pipeline_stage": st.column_config.TextColumn("Stage", width="medium"),
         "waiting": st.column_config.TextColumn("Account waiting", width="small"),
-        "next_action": st.column_config.TextColumn("Next action", width="large"),
         "status": st.column_config.TextColumn("Progress", width="small"),
+        "next_action": st.column_config.TextColumn("Next action", width="large"),
     },
 )
 
@@ -341,7 +341,7 @@ if len(portfolio):
                 placeholder="What should the team learn from this outcome?",
             )
 
-        if updated_status != "Rejected":
+        if updated_status == "In Progress":
             next_action = st.text_input(
                 "Next action (optional)",
                 value=str(lead["next_action"] or ""),
