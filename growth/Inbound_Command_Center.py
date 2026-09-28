@@ -172,7 +172,7 @@ with queue_tab:
     f1, f2, f3, f4, f5 = st.columns([1.6, 1.25, 1.15, 1.05, 1.25])
     with f1:
         search = st.text_input(
-            "Search", placeholder="Name, company, or title", key=f"search_{DATA_VERSION}"
+            "Search", placeholder="Company name", key=f"search_{DATA_VERSION}"
         )
     with f2:
         sort_by = st.selectbox(
@@ -214,14 +214,11 @@ with queue_tab:
     if owner_filter:
         view = view[view["owner"].isin(owner_filter)]
     if search:
-        query = search.lower()
-        matching_accounts = df.loc[
-            df["company"].str.lower().str.contains(query, na=False)
-            | df["name"].str.lower().str.contains(query, na=False)
-            | df["job_title"].str.lower().str.contains(query, na=False),
-            "account_id",
+        view = view[
+            view["account_name"].str.contains(
+                search.strip(), case=False, na=False, regex=False
+            )
         ]
-        view = view[view["account_id"].isin(matching_accounts)]
 
     if sort_by == "Priority score — highest first":
         view = view.sort_values(
@@ -307,12 +304,10 @@ with queue_tab:
                 st.write(f"**{lead['name']}**")
                 st.write(lead["email"])
                 st.write(lead["job_title"])
-                st.caption(f"Lead ID · {lead['lead_id']} · Persona · {lead['persona']}")
             with primary_source:
                 st.write(f"**{lead['normalized_source']}**")
                 st.write(f"Received {received_label}")
                 st.write(f"Contact waiting {lead['contact_waiting']}")
-                st.caption("Selected as primary because it has the strongest individual commercial signal.")
 
             st.markdown("**Primary inbound signal**")
             st.info(lead["inbound_text"])
