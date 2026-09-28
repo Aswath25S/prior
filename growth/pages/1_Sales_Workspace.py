@@ -144,7 +144,7 @@ else:
 
 st.dataframe(
     portfolio[[
-        "score", "name", "account_name", "pipeline_stage", "priority_route", "waiting",
+        "score", "name", "account_name", "pipeline_stage", "waiting",
         "next_action", "status",
     ]],
     hide_index=True,
@@ -155,7 +155,6 @@ st.dataframe(
         "name": st.column_config.TextColumn("Name", width="medium"),
         "account_name": st.column_config.TextColumn("Account", width="medium"),
         "pipeline_stage": st.column_config.TextColumn("Stage", width="medium"),
-        "priority_route": st.column_config.TextColumn("Route", width="medium"),
         "waiting": st.column_config.TextColumn("Account waiting", width="small"),
         "next_action": st.column_config.TextColumn("Next action", width="large"),
         "status": st.column_config.TextColumn("Progress", width="small"),
@@ -202,8 +201,8 @@ if len(portfolio):
             st.write(received_label)
             st.write(f"Contact waiting · {lead['contact_waiting']}")
             st.write(
-                f"{int(lead['account_activity_count'])} activities · "
-                f"{int(lead['same_company_users'])} company user(s)"
+                f"{int(lead['account_activity_signal'])} activities · "
+                f"{int(lead['account_contact_count'])} known contact(s)"
             )
         st.info(lead["inbound_text"])
 

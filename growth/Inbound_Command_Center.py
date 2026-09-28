@@ -242,8 +242,8 @@ with queue_tab:
 
     st.dataframe(
         view[[
-            "score", "account_name", "account_contact_count", "priority_route",
-            "waiting", "engagement", "owner"
+            "score", "account_name", "account_contact_count", "waiting",
+            "engagement", "owner"
         ]],
         hide_index=True,
         width="stretch",
@@ -255,7 +255,6 @@ with queue_tab:
             ),
             "account_name": st.column_config.TextColumn("Account", width="medium"),
             "account_contact_count": st.column_config.NumberColumn("Contacts", width="small"),
-            "priority_route": st.column_config.TextColumn("Recommended route", width="medium"),
             "waiting": st.column_config.TextColumn("Account waiting", width="small"),
             "engagement": st.column_config.TextColumn("Engagement", width="medium"),
             "status": st.column_config.TextColumn("Status", width="medium"),
@@ -278,7 +277,7 @@ with queue_tab:
 
         st.subheader(f"{lead['account_name']} · Priority Score {int(lead['score'])}/100")
         st.caption(
-            f"{lead['priority_route']} · {lead['engagement']} · "
+            f"{lead['engagement']} · "
             f"Account waiting {lead['waiting']} since earliest inbound · {lead['owner']}"
         )
 
@@ -301,7 +300,6 @@ with queue_tab:
                 st.caption("COMBINED SIGNALS")
                 st.write(f"**{int(lead['account_contact_count'])} known contact(s)**")
                 st.write(f"{int(lead['account_activity_signal'])} recent account activities")
-                st.write(f"{int(lead['account_user_signal'])} known account user(s)")
 
             st.markdown("**Primary contact**")
             primary_contact, primary_source = st.columns(2)
@@ -367,7 +365,6 @@ with queue_tab:
                     f"- Waiting-time contribution: +{int(lead['time_points'])}/15 "
                     f"after {lead['waiting']}"
                 )
-                st.markdown(f"- Recommended route: {lead['priority_route']}")
                 if lead["self_serve"]:
                     st.markdown(
                         f"- Self-serve rule: lead quality below {SELF_SERVE_QUALITY_THRESHOLD} "
@@ -543,7 +540,6 @@ with add_tab:
                 "Source", ["SAP", "Direct website", "Free API", "Open-source / GitHub", "Other"]
             )
             activity = st.number_input("Recent company activities", min_value=1, value=2)
-            same_users = st.number_input("Users from same company", min_value=1, value=1)
             inbound_text = st.text_area(
                 "What they said or did",
                 "We are evaluating TabPFN against LightGBM for a production demand forecasting use case.",
@@ -556,7 +552,7 @@ with add_tab:
             "lead_id": next_id, "name": name, "email": email, "company": company,
             "company_size": int(company_size), "job_title": title, "source": source,
             "inbound_time": pd.Timestamp.now(tz="UTC").isoformat(),
-            "account_activity_count": int(activity), "same_company_users": int(same_users),
+            "account_activity_count": int(activity),
             "inbound_text": inbound_text,
         }
         new_row["owner_id"] = "UNASSIGNED"

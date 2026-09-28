@@ -40,7 +40,6 @@ class AssignmentStabilityTest(unittest.TestCase):
             "source": "Direct website",
             "inbound_time": "2026-09-27T12:00:00Z",
             "account_activity_count": 1,
-            "same_company_users": 1,
             "inbound_text": inbound_text,
             "owner_id": owner_id,
             "status": "In Progress",
@@ -276,7 +275,7 @@ class AssignmentStabilityTest(unittest.TestCase):
             "source": "SAP",
             "inbound_text": "Interesting technology, but no active project right now.",
             "account_activity_count": 1,
-            "same_company_users": 1,
+            "account_contact_count": 1,
         })
         active = score_lead({
             "company_size": 12000,
@@ -284,10 +283,27 @@ class AssignmentStabilityTest(unittest.TestCase):
             "source": "Free API",
             "inbound_text": "Several teams are evaluating private networking, security, and pricing.",
             "account_activity_count": 18,
-            "same_company_users": 8,
+            "account_contact_count": 3,
         })
 
         self.assertGreater(active["score"], inactive["score"])
+
+    def test_multiple_known_contacts_strengthen_buying_intent(self):
+        inputs = {
+            "company_size": 500,
+            "job_title": "Data Scientist",
+            "source": "Free API",
+            "inbound_text": "Evaluating a demand forecasting model.",
+            "account_activity_count": 2,
+        }
+
+        single_contact = score_lead({**inputs, "account_contact_count": 1})
+        multiple_contacts = score_lead({**inputs, "account_contact_count": 3})
+
+        self.assertEqual(
+            multiple_contacts["buying_intent"],
+            single_contact["buying_intent"] + 7,
+        )
 
 
 if __name__ == "__main__":

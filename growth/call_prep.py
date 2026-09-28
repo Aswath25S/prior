@@ -69,8 +69,10 @@ def call_prep_context(lead):
         "persona": _text(lead.get("persona")),
         "source": _text(lead.get("normalized_source", lead.get("source"))),
         "inbound_message": _text(lead.get("inbound_text")),
-        "recent_company_activities": _integer(lead.get("account_activity_count", 0)),
-        "same_company_users": _integer(lead.get("same_company_users", 0)),
+        "recent_company_activities": _integer(
+            lead.get("account_activity_signal", lead.get("account_activity_count", 0))
+        ),
+        "known_contacts": _integer(lead.get("account_contact_count", 1), 1),
         "use_case_stage": _text(lead.get("use_case_maturity")),
         "assigned_salesperson": _text(lead.get("owner")),
         "meeting_status": _text(lead.get("meeting_status")),
@@ -92,9 +94,9 @@ def build_fallback_call_prep(lead):
     context = call_prep_context(lead)
     message = context["inbound_message"].lower()
     signals = []
-    if context["same_company_users"] >= 3:
+    if context["known_contacts"] >= 3:
         signals.append(
-            f"{context['same_company_users']} people from {context['company']} have engaged, suggesting broader company interest."
+            f"{context['known_contacts']} known contacts from {context['company']} suggest broader account interest."
         )
     if context["recent_company_activities"] >= 5:
         signals.append(
@@ -146,8 +148,8 @@ def build_fallback_call_prep(lead):
     risks = []
     if context["use_case_stage"] in {"Exploratory / unclear", "Technical exploration", "Non-commercial"}:
         risks.append("The use case may still be exploratory and lack a committed production path.")
-    if context["same_company_users"] <= 1:
-        risks.append("Only one known company user is involved, creating single-threaded engagement risk.")
+    if context["known_contacts"] <= 1:
+        risks.append("Only one known contact is involved, creating single-threaded engagement risk.")
     if not _contains(message, ["budget", "procurement", "pricing", "license"]):
         risks.append("Commercial ownership has not been established.")
     if not risks:
@@ -157,7 +159,7 @@ def build_fallback_call_prep(lead):
         f"{context['name']}, {context['job_title']} at {context['company']}, booked a meeting after "
         f"engaging through {context['source']}. Their message points to a {context['use_case_stage'].lower()} "
         f"TabPFN use case, with {context['recent_company_activities']} recent company activities and "
-        f"{context['same_company_users']} known company user(s)."
+        f"{context['known_contacts']} known contact(s)."
     )
     objective = (
         "Confirm the business problem, define measurable evaluation criteria, and agree on the owner and next step for a TabPFN evaluation."

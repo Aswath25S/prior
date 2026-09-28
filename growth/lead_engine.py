@@ -7,7 +7,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-27-waiting-schema-compat-v16"
+DATA_VERSION = "2026-09-28-account-signals-v17"
 STATUS_ORDER = ["In Progress", "Success", "Rejected"]
 SUCCESS_MILESTONES = ["Commercial win"]
 REJECTION_REASONS = [
@@ -69,7 +69,6 @@ def ensure_lead_fields(leads):
         "source": "Other",
         "inbound_time": "",
         "account_activity_count": 1,
-        "same_company_users": 1,
         "inbound_text": "No inbound message provided.",
         "owner_id": "UNASSIGNED",
         "status": "In Progress",
@@ -416,10 +415,10 @@ def score_lead(row):
     if use_case["explicit_commercial_language"]:
         intent += 10
     activity = safe_int(row.get("account_activity_signal", row.get("account_activity_count", 1)), 1)
-    same_company_users = safe_int(row.get("account_user_signal", row.get("same_company_users", 1)), 1)
+    known_contacts = safe_int(row.get("account_contact_count", 1), 1)
     if activity >= 5:
         intent += 5
-    if same_company_users >= 3:
+    if known_contacts >= 3:
         intent += 7
     if use_case["negative_intent_signal"]:
         intent -= 10
@@ -447,7 +446,8 @@ def score_lead(row):
         "confidence": completeness,
         "why": " | ".join([
             f"Commercial potential: {potential}/40 ({account_type})",
-            f"Buying intent: {intent}/35 ({source}; {activity} recent company activities; {same_company_users} user(s))",
+            f"Buying intent: {intent}/35 ({source}; {activity} recent account activities; "
+            f"{known_contacts} known contact(s))",
             f"Use-case maturity: {maturity}/25 ({use_case['use_case_maturity']})",
         ]),
     }
@@ -502,19 +502,12 @@ def build_lead_view(leads, sales_team, now=None):
     prepared["inbound_text"] = prepared["inbound_text"].apply(
         lambda value: safe_text(value, "No inbound message provided.")
     )
-    for numeric_column in ["company_size", "account_activity_count", "same_company_users"]:
+    for numeric_column in ["company_size", "account_activity_count"]:
         prepared[numeric_column] = prepared[numeric_column].apply(safe_int)
     prepared["account_contact_count"] = prepared.groupby("account_id")["lead_id"].transform("nunique")
     prepared["account_activity_signal"] = prepared.groupby("account_id")[
         "account_activity_count"
     ].transform(lambda values: max(safe_int(value, 1) for value in values))
-    prepared["account_user_signal"] = prepared.groupby("account_id").apply(
-        lambda group: max(
-            int(group["lead_id"].nunique()),
-            max(safe_int(value, 1) for value in group["same_company_users"]),
-        ),
-        include_groups=False,
-    ).reindex(prepared["account_id"]).to_numpy()
     scored = prepared.apply(lambda row: pd.Series(score_lead(row)), axis=1)
     result = pd.concat([prepared, scored.reset_index(drop=True)], axis=1)
     result["received_at"] = pd.to_datetime(result["inbound_time"], utc=True, errors="coerce")

@@ -10,7 +10,7 @@ A lightweight working prototype built voluntarily as additional material for a C
    - Buying intent (0–35)
    - Use-case maturity (0–25)
 3. One account priority score combining lead quality (up to 85 points) with bounded waiting-time urgency (up to 15 points).
-4. A score-sorted running queue with a recommended route, stable owner, and visible supporting contacts.
+4. A score-sorted running queue with a stable owner and visible supporting contacts.
 5. An explanation panel showing *why* each lead received its score.
 6. Stable account-level allocation of limited sales capacity; contacts at the same company share one owner and consume one slot.
 7. An illustrative commercial-team view showing workload and capacity.
