@@ -159,7 +159,7 @@ k1, k2, k3, k4 = st.columns(4)
 k1.metric("Accounts", len(account_df), help=f"Resolved from {len(df)} inbound contacts")
 k2.metric("Sales assigned", sales_assigned_count, help="Highest-priority accounts within team capacity")
 k3.metric("Queued — unassigned", unassigned_count, help="Eligible accounts waiting for sales capacity")
-k4.metric("Self-serve", self_serve_count, help="Low-quality leads waiting at least 14 days")
+k4.metric("Self-serve", self_serve_count, help="Low-quality leads waiting at least 7 days")
 
 queue_tab, outcomes_tab, team_tab, add_tab, method_tab = st.tabs(
     ["Priority queue", "Outcomes", "Sales team", "Add a lead", "How it works"]
@@ -363,7 +363,7 @@ with queue_tab:
                 if lead["self_serve"]:
                     st.markdown(
                         f"- Self-serve rule: lead quality below {SELF_SERVE_QUALITY_THRESHOLD} "
-                        "and waiting time of at least 14 days"
+                        "and waiting time of at least 7 days"
                     )
                 st.markdown(f"- Persona: {lead['persona']}")
                 st.markdown(f"- Use-case stage: {lead['use_case_maturity']}")
@@ -375,8 +375,8 @@ with queue_tab:
                 engagement_note = f"Assigned to {lead['owner']} by score and available capacity."
             elif lead["engagement"] == "Queued — unassigned":
                 engagement_note = (
-                    "All sales capacity is currently full. This account remains ranked and will be "
-                    "assigned automatically when a slot opens."
+                    "This account is below the current score cutoff for available team capacity. "
+                    "It will be assigned automatically if it rises into the top-ranked set."
                 )
             else:
                 engagement_note = "No sales owner is needed because this lead is handled through self-service."
@@ -579,9 +579,9 @@ The system asks three simple questions:
 
 The three evidence dimensions first produce a **lead-quality score out of 100**. Quality is scaled to contribute up to **85 points**, and waiting time contributes up to **15 points**, creating one final priority score.
 
-Contacts sharing an account are resolved into one commercial opportunity, one owner, and one capacity slot. Existing ownership remains stable. Whenever capacity opens, the highest-scoring eligible unassigned account receives the slot.
+Contacts sharing an account are resolved into one commercial opportunity, one owner, and one capacity slot. The highest-scoring eligible accounts are assigned up to total team capacity. Accounts that remain in the selected set keep their owner where individual capacity allows.
 
-The time component is deliberately bounded, so urgency can move an older account up the running queue without overwhelming commercial quality. Low-quality accounts move to self-serve only after 14 days.
+The time component is deliberately bounded, so urgency can move an older account up the running queue without overwhelming commercial quality. Low-quality accounts move to self-serve only after 7 days.
 
 Lead outcomes use three statuses: **In Progress** while the lead is actively being worked, **Success** after a positive commercial outcome, and **Rejected** when the lead is closed without progressing. Successes and rejected leads no longer consume active sales capacity, but retain the salesperson who handled them.
 

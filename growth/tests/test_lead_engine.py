@@ -10,6 +10,7 @@ from growth.lead_engine import (
     record_calendly_invites,
     score_lead,
     update_lead_progress,
+    waiting_points,
 )
 
 
@@ -45,13 +46,13 @@ class AssignmentStabilityTest(unittest.TestCase):
             "status": "In Progress",
         }
 
-    def test_existing_owner_is_not_replaced_by_higher_scoring_lead(self):
+    def test_highest_scoring_lead_receives_limited_capacity(self):
         view = build_lead_view(self.leads, self.team).set_index("lead_id")
 
-        self.assertEqual(view.at["L001", "owner_id"], "S001")
-        self.assertEqual(view.at["L002", "owner_id"], "UNASSIGNED")
+        self.assertEqual(view.at["L001", "owner_id"], "UNASSIGNED")
+        self.assertEqual(view.at["L002", "owner_id"], "S001")
 
-    def test_new_assignment_is_persisted_and_survives_reprioritization(self):
+    def test_higher_scoring_new_lead_takes_limited_capacity(self):
         self.leads.loc[self.leads["lead_id"] == "L001", "status"] = "Success"
         view = build_lead_view(self.leads, self.team)
 
@@ -61,16 +62,18 @@ class AssignmentStabilityTest(unittest.TestCase):
             "S001",
         )
 
+        higher_scoring_lead = self._lead(
+            "L003", 50000, "UNASSIGNED", "Production security procurement"
+        )
+        higher_scoring_lead["source"] = "SAP"
         self.leads = pd.concat([
             self.leads,
-            pd.DataFrame([
-                self._lead("L003", 50000, "UNASSIGNED", "Production security procurement"),
-            ]),
+            pd.DataFrame([higher_scoring_lead]),
         ], ignore_index=True)
         refreshed = build_lead_view(self.leads, self.team).set_index("lead_id")
 
-        self.assertEqual(refreshed.at["L002", "owner_id"], "S001")
-        self.assertEqual(refreshed.at["L003", "owner_id"], "UNASSIGNED")
+        self.assertEqual(refreshed.at["L002", "owner_id"], "UNASSIGNED")
+        self.assertEqual(refreshed.at["L003", "owner_id"], "S001")
 
     def test_success_records_learning_fields_and_score_snapshot(self):
         view = build_lead_view(self.leads, self.team)
@@ -126,7 +129,7 @@ class AssignmentStabilityTest(unittest.TestCase):
         sibling = self._lead("L003", 500, "S001", "Second contact at the same account")
         sibling["email"] = self.leads.iloc[0]["email"]
         next_lead = self._lead(
-            "L004", 5000, "UNASSIGNED", "Production evaluation with procurement"
+            "L004", 50, "UNASSIGNED", "Exploring whether this might be useful"
         )
         leads = pd.concat(
             [self.leads.iloc[[0]], pd.DataFrame([sibling, next_lead])],
@@ -250,8 +253,53 @@ class AssignmentStabilityTest(unittest.TestCase):
         ).iloc[0]
 
         self.assertAlmostEqual(view["waiting_hours"], 6.5)
+        self.assertAlmostEqual(view["waiting_days"], 6.5 / 24)
         self.assertEqual(view["waiting"], "6h 30m")
-        self.assertEqual(view["time_points"], 4)
+        self.assertEqual(view["time_points"], 0)
+
+    def test_waiting_score_changes_at_day_boundaries(self):
+        expected_points = {
+            0.99: 0,
+            1: 2,
+            2: 4,
+            3: 7,
+            5: 11,
+            7: 15,
+        }
+
+        for days, points in expected_points.items():
+            with self.subTest(days=days):
+                self.assertEqual(waiting_points(days), points)
+
+    def test_self_serve_requires_low_quality_and_seven_days_waiting(self):
+        now = pd.Timestamp("2026-09-28T12:00:00Z")
+        old_low_quality = self._lead(
+            "L030", 1, "UNASSIGNED", "Personal project and learning only"
+        )
+        recent_low_quality = self._lead(
+            "L031", 1, "UNASSIGNED", "Personal project and learning only"
+        )
+        old_high_quality = self._lead(
+            "L032", 5000, "UNASSIGNED", "Production deployment and procurement"
+        )
+        old_low_quality["inbound_time"] = (now - pd.Timedelta(days=7)).isoformat()
+        recent_low_quality["inbound_time"] = (
+            now - pd.Timedelta(days=6, hours=23)
+        ).isoformat()
+        old_high_quality["inbound_time"] = (now - pd.Timedelta(days=8)).isoformat()
+
+        view = build_lead_view(
+            pd.DataFrame([old_low_quality, recent_low_quality, old_high_quality]),
+            self.team,
+            now=now,
+        ).set_index("lead_id")
+
+        self.assertLess(view.at["L030", "qualification_score"], 30)
+        self.assertTrue(view.at["L030", "self_serve"])
+        self.assertEqual(view.at["L030", "engagement"], "Self-serve")
+        self.assertFalse(view.at["L031", "self_serve"])
+        self.assertGreaterEqual(view.at["L032", "qualification_score"], 30)
+        self.assertFalse(view.at["L032", "self_serve"])
 
     def test_closed_lead_waiting_time_stops_at_outcome(self):
         lead = self._lead("L021", 500, "S001", "Demand forecasting evaluation")

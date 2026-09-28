@@ -9,14 +9,14 @@ A lightweight working prototype built voluntarily as additional material for a C
    - Commercial potential (0–40)
    - Buying intent (0–35)
    - Use-case maturity (0–25)
-3. One account priority score combining lead quality (up to 85 points) with bounded waiting-time urgency (up to 15 points).
-4. A score-sorted running queue with a stable owner and visible supporting contacts.
+3. One account priority score combining lead quality (up to 85 points) with bounded, day-based waiting-time urgency (up to 15 points).
+4. A score-sorted running queue with score-gated assignment and visible supporting contacts.
 5. An explanation panel showing *why* each lead received its score.
-6. Stable account-level allocation of limited sales capacity; contacts at the same company share one owner and consume one slot.
+6. Account-level allocation of limited sales capacity; the top-scoring eligible accounts are assigned, and contacts at the same company share one owner and consume one slot.
 7. An illustrative commercial-team view showing workload and capacity.
 8. Editable progress controls for the selected lead.
 9. A form to simulate a new inbound lead live during the demo.
-10. A self-serve rule for leads with quality below 30 that have waited at least 14 days.
+10. A self-serve rule for leads with quality below 30 that have waited at least 7 days.
 11. Three clear lifecycle statuses: In Progress, Success, and Rejected. Qualified opportunities and evaluations/POCs remain In Progress; Success is reserved for accounts that become customers.
 12. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
 13. Automatic demo Calendly emails on assignment, with event-driven meeting status and a future-meeting join button in the salesperson workspace.
@@ -53,12 +53,12 @@ Without an API key, the booked-meeting workflow remains fully usable and display
 1. Start on the unified queue and explain the objective:
    "Protect high-value prospects while removing low-value manual work."
 2. Show that Northstar's SAP and deployment contacts resolve to one account, owner, and capacity slot.
-3. Explain the three quality hypotheses and the bounded waiting-time component of the final score.
+3. Explain the three quality hypotheses and the bounded, day-based waiting-time component of the final score.
 4. Open Atlas Insurance or Forge Industrial to show why product/open-source activity can reveal enterprise intent.
 5. Open Independent to show an obvious self-serve case.
-6. Show Independent or SmallLabs AI to demonstrate the low-quality + 14-day self-serve rule, then show team workload.
+6. Show Independent or SmallLabs AI to demonstrate the low-quality + 7-day self-serve rule, then show team workload.
 7. Open the salesperson workspace, choose a rep, and record a structured success or rejection outcome.
-8. Return to the Outcomes tab to show how the decision feeds source conversion and calibration data.
+8. Return to the Outcomes tab to show the separate success and rejection histories.
 9. Use "Add a lead" and type a new example live.
 10. End with: "Every sales decision becomes training data for better rules later."
 
@@ -68,7 +68,7 @@ Without an API key, the booked-meeting workflow remains fully usable and display
 - AI is limited to optional call preparation in this implementation; routing remains auditable. The prototype does not send prospect data for AI processing unless an API key is deliberately configured. Unstructured intake extraction is a logical production extension, not a demonstrated feature here.
 - The weights are hypotheses and should be calibrated with historical outcomes.
 - Lead quality contributes up to 85 points and waiting time up to 15, allowing urgency to affect queue order without dominating commercial evidence.
-- Whenever capacity opens, it is allocated to the highest-scoring eligible unassigned account. Existing ownership remains stable; completing all active work for an account releases capacity while retaining historical ownership.
+- The highest-scoring eligible accounts are assigned up to total team capacity. Accounts remaining in that set retain their owner where individual capacity allows; accounts falling below the cutoff return to the queue.
 - Capacity is counted by active account, not by individual contact.
 - The salesperson workspace shows one row per account. Marking a bundled account Success or Rejected closes all of its contact records, releases exactly one capacity slot, and assigns that slot to the highest-scoring eligible unassigned account.
 - Calendly delivery and bookings are simulated in-session for the prototype. Production would connect the same assignment event to an email provider and use Calendly webhooks to supply meeting times, cancellations, and conference URLs.

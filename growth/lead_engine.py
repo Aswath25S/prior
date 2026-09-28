@@ -7,7 +7,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-28-account-signals-v17"
+DATA_VERSION = "2026-09-28-score-ranked-capacity-v20"
 STATUS_ORDER = ["In Progress", "Success", "Rejected"]
 SUCCESS_MILESTONES = ["Commercial win"]
 REJECTION_REASONS = [
@@ -25,7 +25,7 @@ MEETING_STATUS_ORDER = [
     "Invite sent", "Scheduled", "In progress", "Completed", "No-show", "Cancelled"
 ]
 SELF_SERVE_QUALITY_THRESHOLD = 30
-SELF_SERVE_WAIT_HOURS = 14 * 24
+SELF_SERVE_WAIT_DAYS = 7
 GENERIC_EMAIL_DOMAINS = {"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com"}
 INDIVIDUAL_ACCOUNT_LABELS = {"independent", "not provided"}
 
@@ -464,17 +464,17 @@ def format_wait(hours):
     return f"{minutes}m"
 
 
-def waiting_points(hours):
-    """Add bounded urgency without allowing age to dominate lead quality."""
-    if hours < 2:
+def waiting_points(days):
+    """Add bounded urgency at day boundaries without allowing age to dominate quality."""
+    if days < 1:
         return 0
-    if hours < 6:
+    if days < 2:
         return 2
-    if hours < 12:
+    if days < 3:
         return 4
-    if hours < 24:
+    if days < 5:
         return 7
-    if hours < 48:
+    if days < 7:
         return 11
     return 15
 
@@ -526,19 +526,20 @@ def build_lead_view(leads, sales_team, now=None):
     )
     result["contact_waiting"] = result["contact_waiting_hours"].apply(format_wait)
     result["waiting_hours"] = result.groupby("account_id")["contact_waiting_hours"].transform("max")
+    result["waiting_days"] = result["waiting_hours"] / 24
     result["contact_qualification_score"] = result["score"].astype(int)
     result["qualification_score"] = result.groupby("account_id")[
         "contact_qualification_score"
     ].transform("max").astype(int)
     result["qualification_points"] = (result["qualification_score"] * 0.85).round().astype(int)
-    result["time_points"] = result["waiting_hours"].apply(waiting_points).astype(int)
+    result["time_points"] = result["waiting_days"].apply(waiting_points).astype(int)
     result["score"] = (
         result["qualification_points"] + result["time_points"]
     ).clip(upper=100).astype(int)
     result["priority_route"] = result["score"].apply(route_for_score)
     result["self_serve"] = (
         (result["qualification_score"] < SELF_SERVE_QUALITY_THRESHOLD)
-        & (result["waiting_hours"] >= SELF_SERVE_WAIT_HOURS)
+        & (result["waiting_days"] >= SELF_SERVE_WAIT_DAYS)
     )
     result.loc[result["self_serve"], "priority_route"] = "Self-serve"
     result.loc[
@@ -552,6 +553,7 @@ def build_lead_view(leads, sales_team, now=None):
 
     valid_owners = set(sales_team["salesperson_id"])
     result.loc[~result["owner_id"].isin(valid_owners), "owner_id"] = "UNASSIGNED"
+    existing_owner_by_account = {}
     for _, account_rows in result.groupby("account_id", sort=False):
         valid_account_owners = account_rows.loc[
             account_rows["owner_id"].isin(valid_owners), "owner_id"
@@ -559,31 +561,47 @@ def build_lead_view(leads, sales_team, now=None):
         if valid_account_owners.empty:
             continue
         account_owner = valid_account_owners.iloc[0]
+        existing_owner_by_account[account_rows.iloc[0]["account_id"]] = account_owner
         active_indices = account_rows.index[account_rows["status"] == "In Progress"]
         result.loc[active_indices, "owner_id"] = account_owner
     capacity_left = dict(zip(sales_team["salesperson_id"], sales_team["weekly_capacity"].astype(int)))
 
-    # Ownership is durable once assigned. Existing active work consumes capacity;
-    # only unassigned leads are considered for a new owner.
-    active_assignments = result[
-        (result["status"] == "In Progress") & result["owner_id"].isin(valid_owners)
+    # Score alone determines which eligible accounts consume the team's limited
+    # capacity. Earliest inbound time is the deterministic tie-breaker.
+    eligible_rows = result[
+        (result["status"] == "In Progress") & ~result["self_serve"]
     ]
-    active_accounts = active_assignments.drop_duplicates(["owner_id", "account_id"])
-    for owner_id, active_count in active_accounts["owner_id"].value_counts().items():
-        capacity_left[owner_id] = max(capacity_left[owner_id] - int(active_count), 0)
+    eligible_accounts = (
+        eligible_rows.groupby("account_id", as_index=False)
+        .agg(score=("score", "max"), received_at=("received_at", "min"))
+        .sort_values(
+            ["score", "received_at", "account_id"],
+            ascending=[False, True, True],
+            na_position="last",
+        )
+    )
+    total_capacity = sum(capacity_left.values())
+    selected_accounts = eligible_accounts.head(total_capacity)["account_id"].tolist()
 
-    for account_id in result["account_id"].drop_duplicates():
-        account_rows = result[result["account_id"] == account_id]
-        active_rows = account_rows[account_rows["status"] == "In Progress"]
-        if active_rows.empty or (active_rows["owner_id"] != "UNASSIGNED").any():
-            continue
-        if active_rows["self_serve"].all():
-            continue
+    active_mask = result["status"] == "In Progress"
+    result.loc[active_mask, "owner_id"] = "UNASSIGNED"
+    pending_accounts = []
+    for account_id in selected_accounts:
+        preferred_owner = existing_owner_by_account.get(account_id)
+        if preferred_owner in capacity_left and capacity_left[preferred_owner] > 0:
+            account_indices = result.index[active_mask & (result["account_id"] == account_id)]
+            result.loc[account_indices, "owner_id"] = preferred_owner
+            capacity_left[preferred_owner] -= 1
+        else:
+            pending_accounts.append(account_id)
+
+    for account_id in pending_accounts:
         available = [owner for owner, capacity in capacity_left.items() if capacity > 0]
         if not available:
             continue
         owner = sorted(available, key=lambda value: (-capacity_left[value], value))[0]
-        result.loc[active_rows.index, "owner_id"] = owner
+        account_indices = result.index[active_mask & (result["account_id"] == account_id)]
+        result.loc[account_indices, "owner_id"] = owner
         capacity_left[owner] -= 1
 
     result["engagement"] = "Queued — unassigned"
@@ -625,7 +643,7 @@ def build_account_view(lead_view):
 
 
 def persist_owner_assignments(leads, lead_view):
-    """Persist newly allocated owners so later reprioritization cannot reshuffle them."""
+    """Persist the owner allocation produced by the current ranked-capacity pass."""
     owners_by_lead = lead_view.set_index("lead_id")["owner_id"]
     changes = 0
     for lead_index, lead in leads.iterrows():
