@@ -47,6 +47,16 @@ def _text(value, default="Unknown"):
     return rendered if rendered and rendered.lower() != "nan" else default
 
 
+def _integer(value, default=0):
+    try:
+        if value is None:
+            return default
+        normalized = str(value).strip().replace(",", "").lstrip("~")
+        return max(int(float(normalized)), 0)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def call_prep_context(lead):
     """Select and normalize only the lead fields needed for call preparation."""
     return {
@@ -54,13 +64,13 @@ def call_prep_context(lead):
         "name": _text(lead.get("name")),
         "job_title": _text(lead.get("job_title")),
         "company": _text(lead.get("company")),
-        "company_size": int(lead.get("company_size", 0) or 0),
+        "company_size": _integer(lead.get("company_size", 0)),
         "company_type": _text(lead.get("account_type")),
         "persona": _text(lead.get("persona")),
         "source": _text(lead.get("normalized_source", lead.get("source"))),
         "inbound_message": _text(lead.get("inbound_text")),
-        "recent_company_activities": int(lead.get("account_activity_count", 0) or 0),
-        "same_company_users": int(lead.get("same_company_users", 0) or 0),
+        "recent_company_activities": _integer(lead.get("account_activity_count", 0)),
+        "same_company_users": _integer(lead.get("same_company_users", 0)),
         "use_case_stage": _text(lead.get("use_case_maturity")),
         "assigned_salesperson": _text(lead.get("owner")),
         "meeting_status": _text(lead.get("meeting_status")),

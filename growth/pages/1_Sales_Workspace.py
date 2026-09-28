@@ -12,12 +12,18 @@ from call_prep import call_prep_fingerprint, generate_call_prep
 lead_engine = importlib.reload(lead_engine)
 DATA_VERSION = lead_engine.DATA_VERSION
 MEETING_STATUS_ORDER = lead_engine.MEETING_STATUS_ORDER
+REJECTION_REASONS = lead_engine.REJECTION_REASONS
 STATUS_ORDER = lead_engine.STATUS_ORDER
+VALUE_BANDS = lead_engine.VALUE_BANDS
 build_lead_view = lead_engine.build_lead_view
+build_account_view = lead_engine.build_account_view
+format_wait = lead_engine.format_wait
 load_leads = lead_engine.load_leads
 load_sales_team = lead_engine.load_sales_team
 record_calendly_invites = lead_engine.record_calendly_invites
+persist_owner_assignments = lead_engine.persist_owner_assignments
 sync_meeting_statuses = lead_engine.sync_meeting_statuses
+update_lead_progress = lead_engine.update_lead_progress
 
 
 st.set_page_config(
@@ -65,31 +71,38 @@ if st.session_state.get("data_version") != DATA_VERSION or "leads" not in st.ses
 
 team = load_sales_team()
 lead_view = build_lead_view(st.session_state.leads, team)
+persist_owner_assignments(st.session_state.leads, lead_view)
 new_invites = record_calendly_invites(st.session_state.leads, lead_view, team)
 if new_invites:
     st.session_state.setdefault("email_outbox", []).extend(new_invites)
 lead_view = build_lead_view(st.session_state.leads, team)
+if "contact_waiting" not in lead_view.columns:
+    if "contact_waiting_hours" in lead_view.columns:
+        lead_view["contact_waiting"] = lead_view["contact_waiting_hours"].apply(format_wait)
+    else:
+        lead_view["contact_waiting"] = lead_view.get("waiting", "Not available")
 
 st.markdown('<div class="workspace-label">Prior Labs · Sales</div>', unsafe_allow_html=True)
 st.title("My lead workspace")
-st.caption("Track assigned leads, focus on the highest score, and record the commercial outcome.")
+st.caption("Work the highest-priority assigned accounts and record evidence-rich outcomes.")
 
 salesperson_names = team["name"].tolist()
 selected_name = st.selectbox("Salesperson", salesperson_names, key="sales_workspace_person")
 person = team[team["name"] == selected_name].iloc[0]
 person_id = person["salesperson_id"]
 person_leads = lead_view[lead_view["owner_id"] == person_id].copy()
+person_accounts = build_account_view(person_leads) if not person_leads.empty else person_leads.copy()
 
-active_count = int((person_leads["status"] == "In Progress").sum())
-success_count = int((person_leads["status"] == "Success").sum())
-rejection_count = int((person_leads["status"] == "Rejection").sum())
+active_count = int((person_accounts["status"] == "In Progress").sum())
+success_count = int((person_accounts["status"] == "Success").sum())
+rejected_count = int((person_accounts["status"] == "Rejected").sum())
 capacity = int(person["weekly_capacity"])
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Active leads", active_count)
+m1.metric("Active accounts", active_count)
 m2.metric("Available capacity", max(capacity - active_count, 0))
 m3.metric("Successes", success_count)
-m4.metric("Rejections", rejection_count)
+m4.metric("Rejected", rejected_count)
 
 st.markdown("### Lead portfolio")
 search_col, status_col, sort_col = st.columns([1.6, 1, 1.25])
@@ -110,7 +123,7 @@ with sort_col:
         key="sales_sort",
     )
 
-portfolio = person_leads.copy()
+portfolio = person_accounts.copy()
 if status_filter:
     portfolio = portfolio[portfolio["status"].isin(status_filter)]
 if search:
@@ -130,16 +143,21 @@ else:
     portfolio = portfolio.sort_values(["score", "received_at"], ascending=[False, True])
 
 st.dataframe(
-    portfolio[["score", "name", "company", "waiting", "engagement", "status"]],
+    portfolio[[
+        "score", "name", "account_name", "pipeline_stage", "priority_route", "waiting",
+        "next_action", "status",
+    ]],
     hide_index=True,
     width="stretch",
     height=360,
     column_config={
         "score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, width="small"),
         "name": st.column_config.TextColumn("Name", width="medium"),
-        "company": st.column_config.TextColumn("Company", width="medium"),
-        "waiting": st.column_config.TextColumn("Waiting", width="small"),
-        "engagement": st.column_config.TextColumn("Engagement", width="medium"),
+        "account_name": st.column_config.TextColumn("Account", width="medium"),
+        "pipeline_stage": st.column_config.TextColumn("Stage", width="medium"),
+        "priority_route": st.column_config.TextColumn("Route", width="medium"),
+        "waiting": st.column_config.TextColumn("Account waiting", width="small"),
+        "next_action": st.column_config.TextColumn("Next action", width="large"),
         "status": st.column_config.TextColumn("Progress", width="small"),
     },
 )
@@ -153,7 +171,11 @@ if len(portfolio):
     selected_label = st.selectbox("Lead", list(lead_options), key="sales_selected_lead")
     lead_id = lead_options[selected_label]
     lead = lead_view[lead_view["lead_id"] == lead_id].iloc[0]
-    received_label = lead["received_at"].strftime("%b %d, %Y · %I:%M %p UTC")
+    received_label = (
+        lead["received_at"].strftime("%b %d, %Y · %I:%M %p UTC")
+        if pd.notna(lead["received_at"])
+        else "Unknown"
+    )
     current_meeting_status = (
         lead["meeting_status"]
         if lead["meeting_status"] in MEETING_STATUS_ORDER
@@ -178,6 +200,7 @@ if len(portfolio):
             st.caption("ACTIVITY")
             st.write(f"**{lead['normalized_source']}**")
             st.write(received_label)
+            st.write(f"Contact waiting · {lead['contact_waiting']}")
             st.write(
                 f"{int(lead['account_activity_count'])} activities · "
                 f"{int(lead['same_company_users'])} company user(s)"
@@ -255,18 +278,97 @@ if len(portfolio):
         st.markdown("#### Progress")
         current_status = lead["status"] if lead["status"] in STATUS_ORDER else "In Progress"
         updated_status = st.selectbox(
-            "Outcome", STATUS_ORDER, index=STATUS_ORDER.index(current_status), key=f"outcome_{lead_id}"
+            "Current progress",
+            STATUS_ORDER,
+            index=STATUS_ORDER.index(current_status),
+            key=f"outcome_{lead_id}",
         )
-        st.caption(
-            "In Progress = active · Success = positive commercial outcome · "
-            "Rejection = closed without progressing"
-        )
+        success_milestone = ""
+        pipeline_stage = str(lead["pipeline_stage"] or "Initial follow-up")
+        disposition_reason = ""
+        disposition_notes = ""
+        opportunity_created = False
+        opportunity_stage = ""
+        estimated_value_band = ""
+
+        if updated_status == "In Progress":
+            pipeline_stage = st.text_input(
+                "Current stage",
+                value=pipeline_stage,
+                key=f"pipeline_stage_{lead_id}",
+                placeholder="e.g. Security review, technical discovery, or POC planning",
+            )
+            if pipeline_stage.strip() and pipeline_stage.strip().lower() != "initial follow-up":
+                current_value = lead["estimated_value_band"]
+                value_index = VALUE_BANDS.index(current_value) if current_value in VALUE_BANDS else 0
+                estimated_value_band = st.selectbox(
+                    "Estimated opportunity size (optional)",
+                    VALUE_BANDS,
+                    index=value_index,
+                    key=f"value_band_{lead_id}",
+                )
+        elif updated_status == "Success":
+            success_milestone = "Commercial win"
+            pipeline_stage = "Customer"
+            opportunity_created = True
+            opportunity_stage = "Closed won"
+            st.success("Success means this account has become a customer.")
+            current_value = lead["estimated_value_band"]
+            value_index = VALUE_BANDS.index(current_value) if current_value in VALUE_BANDS else 0
+            estimated_value_band = st.selectbox(
+                "Customer value (optional)",
+                VALUE_BANDS,
+                index=value_index,
+                key=f"value_band_{lead_id}",
+            )
+        elif updated_status == "Rejected":
+            pipeline_stage = str(lead["pipeline_stage"] or "Initial follow-up")
+            current_reason = lead["disposition_reason"]
+            reason_index = (
+                REJECTION_REASONS.index(current_reason)
+                if current_reason in REJECTION_REASONS
+                else 0
+            )
+            disposition_reason = st.selectbox(
+                "Why was it closed?",
+                REJECTION_REASONS,
+                index=reason_index,
+                key=f"reason_{lead_id}",
+            )
+            disposition_notes = st.text_area(
+                "Outcome notes",
+                value=str(lead["disposition_notes"] or ""),
+                key=f"notes_{lead_id}",
+                placeholder="What should the team learn from this outcome?",
+            )
+
+        if updated_status != "Rejected":
+            next_action = st.text_input(
+                "Next action (optional)",
+                value=str(lead["next_action"] or ""),
+                key=f"next_action_{lead_id}",
+                placeholder="Send security pack and confirm evaluation owner",
+            )
+            existing_due = pd.to_datetime(lead["next_action_due"], errors="coerce")
+            next_action_due = st.date_input(
+                "Next-action due date",
+                value=existing_due.date() if pd.notna(existing_due) else None,
+                key=f"next_action_due_{lead_id}",
+            )
+        else:
+            next_action = ""
+            next_action_due = ""
         st.markdown("#### Meeting")
         sent_at = pd.to_datetime(lead["calendly_sent_at"], utc=True, errors="coerce")
         sent_label = sent_at.strftime("%b %d, %Y · %I:%M %p UTC") if pd.notna(sent_at) else "Not sent"
         meeting_start = pd.to_datetime(lead["meeting_start_at"], utc=True, errors="coerce")
         st.info(f"Meeting status: **{current_meeting_status}**")
-        st.caption(f"Calendly invitation sent to {lead['email']} · {sent_label}")
+        if pd.notna(sent_at):
+            st.caption(f"Calendly invitation sent to {lead['email']} · {sent_label}")
+        elif lead["email"] == "Not provided":
+            st.caption("Calendly invitation not sent because no email address is available.")
+        else:
+            st.caption("Calendly invitation has not been sent.")
         if (
             current_meeting_status in {"Scheduled", "In progress"}
             and pd.notna(meeting_start)
@@ -316,10 +418,21 @@ if len(portfolio):
             "The demo booking control stands in for a production webhook."
         )
         if st.button("Save progress", type="primary", width="stretch", key=f"save_{lead_id}"):
-            row_index = st.session_state.leads.index[st.session_state.leads["lead_id"] == lead_id][0]
-            st.session_state.leads.loc[row_index, "owner_id"] = lead["owner_id"]
-            st.session_state.leads.loc[row_index, "status"] = updated_status
-            st.success("Lead progress updated. Capacity and assignments have been recalculated.")
+            update_lead_progress(
+                st.session_state.leads,
+                lead,
+                updated_status,
+                pipeline_stage=pipeline_stage,
+                success_milestone=success_milestone,
+                disposition_reason=disposition_reason,
+                disposition_notes=disposition_notes,
+                opportunity_created=opportunity_created,
+                opportunity_stage=opportunity_stage,
+                estimated_value_band=estimated_value_band,
+                next_action=next_action,
+                next_action_due=next_action_due,
+            )
+            st.success("Progress and structured outcome data saved. Capacity has been recalculated.")
             st.rerun()
 else:
     st.info("No leads match these filters for this salesperson.")

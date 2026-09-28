@@ -1,10 +1,26 @@
 
-from pathlib import Path
+import importlib
 
 import pandas as pd
 import streamlit as st
 
-from lead_engine import build_lead_view, record_calendly_invites
+import lead_engine
+
+
+# Streamlit can rerun this page without refreshing modules imported earlier in
+# the session. Reload the shared engine so this page and its output schema agree.
+lead_engine = importlib.reload(lead_engine)
+DATA_VERSION = lead_engine.DATA_VERSION
+SELF_SERVE_QUALITY_THRESHOLD = lead_engine.SELF_SERVE_QUALITY_THRESHOLD
+STATUS_ORDER = lead_engine.STATUS_ORDER
+build_account_view = lead_engine.build_account_view
+build_lead_view = lead_engine.build_lead_view
+format_wait = lead_engine.format_wait
+load_leads = lead_engine.load_leads
+load_sales_team = lead_engine.load_sales_team
+next_lead_id = lead_engine.next_lead_id
+persist_owner_assignments = lead_engine.persist_owner_assignments
+record_calendly_invites = lead_engine.record_calendly_invites
 
 st.set_page_config(
     page_title="Prior Labs — Inbound Triage Copilot",
@@ -12,281 +28,9 @@ st.set_page_config(
     layout="wide",
 )
 
-# -----------------------------
-# Prototype configuration
-# -----------------------------
-STATUS_ORDER = ["In Progress", "Success", "Rejection"]
-ENGAGEMENT_OPTIONS = ["Sales assigned", "Queued — unassigned", "Self-serve", "Completed"]
-APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-24-calendar-sync-v4"
-SELF_SERVE_QUALITY_THRESHOLD = 30
-SELF_SERVE_WAIT_HOURS = 14 * 24
-
-def normalize_source(source: str) -> str:
-    s = (source or "").lower()
-    if "sap" in s:
-        return "SAP"
-    if "demo" in s or "website" in s or "contact" in s:
-        return "Direct website"
-    if "api" in s:
-        return "Free API"
-    if "github" in s or "open" in s:
-        return "Open-source / GitHub"
-    return "Other"
-
-def classify_account_type(company_size):
-    try:
-        n = int(company_size)
-    except Exception:
-        return "Unknown"
-    if n >= 5000:
-        return "Large enterprise"
-    if n >= 500:
-        return "Mid-market / enterprise"
-    if n >= 50:
-        return "SMB / scale-up"
-    if n > 0:
-        return "Small company"
-    return "Individual / unknown"
-
-def classify_persona(title: str) -> str:
-    t = (title or "").lower()
-    if any(x in t for x in ["chief", "vp", "vice president", "head of", "director"]):
-        return "Decision-maker / senior leader"
-    if any(x in t for x in ["data scientist", "machine learning", "ml engineer", "research scientist", "engineer"]):
-        return "Technical champion"
-    if any(x in t for x in ["student", "intern", "research assistant"]):
-        return "Student / academic"
-    return "Other / unknown"
-
-def classify_use_case(text: str):
-    t = (text or "").lower()
-
-    noncommercial = any(x in t for x in [
-        "school project", "class project", "student project", "personal project",
-        "hobby", "coursework", "learning only", "toy dataset"
-    ])
-    production = any(x in t for x in [
-        "production", "deploy", "deployment", "rollout", "enterprise",
-        "procurement", "security review", "sla", "on-prem", "private cloud"
-    ])
-    evaluation = any(x in t for x in [
-        "benchmark", "evaluate", "evaluation", "pilot", "poc", "proof of concept",
-        "compare", "xgboost", "lightgbm", "baseline"
-    ])
-    business_problem = any(x in t for x in [
-        "fraud", "credit", "default", "risk", "forecast", "demand",
-        "maintenance", "clinical", "churn", "pricing", "claims", "propensity",
-        "quality", "failure", "underwriting"
-    ])
-    commercial = any(x in t for x in [
-        "pricing", "quote", "contract", "buy", "purchase", "sales",
-        "demo", "security", "procurement", "license", "commercial"
-    ])
-
-    if noncommercial:
-        maturity = "Non-commercial"
-        maturity_score = 0
-    elif production:
-        maturity = "Production-ready"
-        maturity_score = 25
-    elif evaluation and business_problem:
-        maturity = "Active evaluation"
-        maturity_score = 21
-    elif business_problem:
-        maturity = "Defined business use case"
-        maturity_score = 15
-    elif evaluation:
-        maturity = "Technical exploration"
-        maturity_score = 9
-    else:
-        maturity = "Exploratory / unclear"
-        maturity_score = 5
-
-    return {
-        "use_case_maturity": maturity,
-        "use_case_score": maturity_score,
-        "explicit_commercial_language": commercial,
-        "production_signal": production,
-        "evaluation_signal": evaluation,
-        "business_problem_signal": business_problem,
-        "noncommercial_signal": noncommercial,
-    }
-
-
-def score_lead(row):
-    source = normalize_source(row.get("source", ""))
-    account_type = classify_account_type(row.get("company_size", 0))
-    persona = classify_persona(row.get("job_title", ""))
-    uc = classify_use_case(row.get("inbound_text", ""))
-
-    # 1) Commercial potential (0-40)
-    size = int(row.get("company_size", 0) or 0)
-    if size >= 5000:
-        potential = 32
-    elif size >= 500:
-        potential = 24
-    elif size >= 50:
-        potential = 14
-    elif size > 0:
-        potential = 7
-    else:
-        potential = 1
-
-    # Strategic enterprise / SAP context can add signal, capped at 40
-    if source == "SAP" and size >= 500:
-        potential += 8
-    elif persona == "Decision-maker / senior leader" and size >= 500:
-        potential += 5
-    potential = min(potential, 40)
-
-    # 2) Buying intent (0-35)
-    source_points = {
-        "SAP": 15,
-        "Direct website": 14,
-        "Free API": 7,
-        "Open-source / GitHub": 3,
-        "Other": 5,
-    }[source]
-
-    intent = source_points
-    if uc["explicit_commercial_language"]:
-        intent += 10
-    if uc["production_signal"]:
-        intent += 7
-    elif uc["evaluation_signal"]:
-        intent += 5
-
-    activity = int(row.get("account_activity_count", 1) or 1)
-    same_company_users = int(row.get("same_company_users", 1) or 1)
-    if activity >= 5:
-        intent += 2
-    if same_company_users >= 3:
-        intent += 3
-    intent = min(intent, 35)
-
-    # 3) Use-case maturity (0-25)
-    maturity = uc["use_case_score"]
-
-    raw_score = potential + intent + maturity
-
-    confidence = "High"
-    if row.get("company_size", 0) in [0, "", None] or not row.get("job_title") or not row.get("inbound_text"):
-        confidence = "Medium"
-    if sum([
-        bool(row.get("company_size", 0)),
-        bool(row.get("job_title")),
-        bool(row.get("inbound_text"))
-    ]) <= 1:
-        confidence = "Low"
-
-    why = [
-        f"Commercial potential: {potential}/40 ({account_type})",
-        f"Buying intent: {intent}/35 ({source}; {activity} recent company activities; {same_company_users} user(s))",
-        f"Use-case maturity: {maturity}/25 ({uc['use_case_maturity']})",
-    ]
-    return {
-        "normalized_source": source,
-        "account_type": account_type,
-        "persona": persona,
-        "use_case_maturity": uc["use_case_maturity"],
-        "commercial_potential": potential,
-        "buying_intent": intent,
-        "use_case_score": maturity,
-        "score": raw_score,
-        "confidence": confidence,
-        "why": " | ".join(why),
-    }
-
-def enrich_df(df):
-    scored = df.apply(lambda r: pd.Series(score_lead(r)), axis=1)
-    return pd.concat([df.reset_index(drop=True), scored.reset_index(drop=True)], axis=1)
-
-
-def waiting_points(hours):
-    """Add a bounded urgency boost as a lead waits longer in the queue."""
-    if hours < 2:
-        return 0
-    if hours < 6:
-        return 2
-    if hours < 12:
-        return 4
-    if hours < 24:
-        return 7
-    if hours < 48:
-        return 11
-    return 15
-
-
-def format_wait(hours):
-    total_hours = max(int(hours), 0)
-    days, hours_left = divmod(total_hours, 24)
-    return f"{days}d {hours_left}h" if days else f"{hours_left}h"
-
-
-def add_time_metrics(scored_df):
-    result = scored_df.copy()
-    result["received_at"] = pd.to_datetime(result["inbound_time"], utc=True, errors="coerce")
-    now = pd.Timestamp.now(tz="UTC")
-    result["waiting_hours"] = (
-        (now - result["received_at"]).dt.total_seconds().div(3600).clip(lower=0).fillna(0)
-    )
-    result["time_points"] = result["waiting_hours"].apply(waiting_points)
-    result["qualification_score"] = result["score"]
-    result["qualification_points"] = (result["qualification_score"] * 0.85).round().astype(int)
-    result["score"] = (
-        result["qualification_points"] + result["time_points"]
-    ).clip(upper=100).astype(int)
-    result["self_serve"] = (
-        (result["qualification_score"] < SELF_SERVE_QUALITY_THRESHOLD)
-        & (result["waiting_hours"] >= SELF_SERVE_WAIT_HOURS)
-    )
-    result["waiting"] = result["waiting_hours"].apply(format_wait)
-    return result
-
-@st.cache_data
-def load_leads():
-    return pd.read_csv(APP_DIR / "sample_leads.csv")
-
-
-@st.cache_data
-def load_sales_team():
-    return pd.read_csv(APP_DIR / "sales_team.csv")
-
-
-def assign_salespeople(scored_leads, sales_team):
-    """Give limited sales capacity to eligible leads in descending score order."""
-    result = scored_leads.sort_values(
-        ["score", "qualification_score", "received_at"], ascending=[False, False, True]
-    ).copy()
-    valid_owner_ids = set(sales_team["salesperson_id"])
-    result.loc[
-        (result["status"] == "In Progress") | ~result["owner_id"].isin(valid_owner_ids),
-        "owner_id",
-    ] = "UNASSIGNED"
-    capacity_left = {
-        row["salesperson_id"]: int(row["weekly_capacity"])
-        for _, row in sales_team.iterrows()
-    }
-
-    for index, lead in result.iterrows():
-        if lead["status"] != "In Progress":
-            continue
-        if lead["self_serve"]:
-            continue
-        available = [person_id for person_id, capacity in capacity_left.items() if capacity > 0]
-        if not available:
-            continue
-        owner_id = sorted(available, key=lambda person_id: (-capacity_left[person_id], person_id))[0]
-        result.at[index, "owner_id"] = owner_id
-        capacity_left[owner_id] -= 1
-
-    result["engagement"] = "Queued — unassigned"
-    result.loc[result["owner_id"] != "UNASSIGNED", "engagement"] = "Sales assigned"
-    result.loc[result["self_serve"], "engagement"] = "Self-serve"
-    result.loc[result["status"].isin(["Success", "Rejection"]), "engagement"] = "Completed"
-    return result
-
+ENGAGEMENT_OPTIONS = [
+    "Sales assigned", "Queued — unassigned", "Self-serve", "Completed"
+]
 
 if st.session_state.get("data_version") != DATA_VERSION:
     st.session_state.leads = load_leads()
@@ -307,13 +51,21 @@ owner_names = dict(zip(team["salesperson_id"], team["name"]))
 owner_names["UNASSIGNED"] = "Unassigned"
 
 df = build_lead_view(st.session_state.leads, team)
+persist_owner_assignments(st.session_state.leads, df)
 new_invites = record_calendly_invites(st.session_state.leads, df, team)
 if new_invites:
     st.session_state.setdefault("email_outbox", []).extend(new_invites)
 df = build_lead_view(st.session_state.leads, team)
+# Keep existing browser sessions usable across the waiting-time schema change.
+if "contact_waiting" not in df.columns:
+    if "contact_waiting_hours" in df.columns:
+        df["contact_waiting"] = df["contact_waiting_hours"].apply(format_wait)
+    else:
+        df["contact_waiting"] = df.get("waiting", "Not available")
 df = df.sort_values(
-    ["score", "qualification_score", "received_at"], ascending=[False, False, True]
+    ["score", "received_at"], ascending=[False, True]
 ).reset_index(drop=True)
+account_df = build_account_view(df)
 
 # A restrained visual layer keeps the hierarchy clear while retaining native Streamlit behavior.
 st.markdown(
@@ -399,23 +151,23 @@ st.markdown(
 )
 st.page_link("pages/1_Sales_Workspace.py", label="Open salesperson workspace", icon="👤")
 
-sales_assigned_count = int((df["engagement"] == "Sales assigned").sum())
-self_serve_count = int((df["engagement"] == "Self-serve").sum())
-unassigned_count = int((df["engagement"] == "Queued — unassigned").sum())
+sales_assigned_count = int((account_df["engagement"] == "Sales assigned").sum())
+self_serve_count = int((account_df["engagement"] == "Self-serve").sum())
+unassigned_count = int((account_df["engagement"] == "Queued — unassigned").sum())
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total inbound", len(df), help="All leads in the unified queue")
-k2.metric("Sales assigned", sales_assigned_count, help="Highest-scoring leads within team capacity")
-k3.metric("Queued — unassigned", unassigned_count, help="Eligible leads waiting for sales capacity")
+k1.metric("Accounts", len(account_df), help=f"Resolved from {len(df)} inbound contacts")
+k2.metric("Sales assigned", sales_assigned_count, help="Highest-priority accounts within team capacity")
+k3.metric("Queued — unassigned", unassigned_count, help="Eligible accounts waiting for sales capacity")
 k4.metric("Self-serve", self_serve_count, help="Low-quality leads waiting at least 14 days")
 
-queue_tab, team_tab, add_tab, method_tab = st.tabs(
-    ["Priority queue", "Sales team", "Add a lead", "How it works"]
+queue_tab, outcomes_tab, team_tab, add_tab, method_tab = st.tabs(
+    ["Priority queue", "Outcomes", "Sales team", "Add a lead", "How it works"]
 )
 
 with queue_tab:
-    st.markdown("### Priority queue")
-    st.caption("Search, filter, and sort the full inbound queue. Highest score is the default order.")
+    st.markdown("### Account priority queue")
+    st.caption("Multiple contacts and signals resolve to one account, owner, and time-aware priority.")
 
     f1, f2, f3, f4, f5 = st.columns([1.6, 1.25, 1.15, 1.05, 1.25])
     with f1:
@@ -454,7 +206,7 @@ with queue_tab:
             help="Leave empty to show every owner.",
         )
 
-    view = df.copy()
+    view = account_df.copy()
     if engagement_filter:
         view = view[view["engagement"].isin(engagement_filter)]
     if status_filter:
@@ -463,19 +215,21 @@ with queue_tab:
         view = view[view["owner"].isin(owner_filter)]
     if search:
         query = search.lower()
-        view = view[
-            view["company"].str.lower().str.contains(query, na=False)
-            | view["name"].str.lower().str.contains(query, na=False)
-            | view["job_title"].str.lower().str.contains(query, na=False)
+        matching_accounts = df.loc[
+            df["company"].str.lower().str.contains(query, na=False)
+            | df["name"].str.lower().str.contains(query, na=False)
+            | df["job_title"].str.lower().str.contains(query, na=False),
+            "account_id",
         ]
+        view = view[view["account_id"].isin(matching_accounts)]
 
     if sort_by == "Priority score — highest first":
         view = view.sort_values(
-            ["score", "qualification_score", "received_at"], ascending=[False, False, True]
+            ["score", "received_at"], ascending=[False, True]
         )
     elif sort_by == "Priority score — lowest first":
         view = view.sort_values(
-            ["score", "qualification_score", "received_at"], ascending=[True, True, True]
+            ["score", "received_at"], ascending=[True, True]
         )
     elif sort_by == "Waiting time — longest first":
         view = view.sort_values(["waiting_hours", "score"], ascending=[False, False])
@@ -488,8 +242,8 @@ with queue_tab:
 
     st.dataframe(
         view[[
-            "score", "name", "company", "received_at", "waiting",
-            "engagement", "status", "owner"
+            "score", "account_name", "account_contact_count", "priority_route",
+            "waiting", "engagement", "owner"
         ]],
         hide_index=True,
         width="stretch",
@@ -497,14 +251,12 @@ with queue_tab:
         column_config={
             "score": st.column_config.ProgressColumn(
                 "Priority score", min_value=0, max_value=100, width="small",
-                help="Commercial potential + buying intent + use-case maturity + waiting time",
+                help="Account-level commercial potential + buying intent + use-case maturity",
             ),
-            "name": st.column_config.TextColumn("Name", width="medium"),
-            "company": st.column_config.TextColumn("Company", width="medium"),
-            "received_at": st.column_config.DatetimeColumn(
-                "Received", format="MMM D, h:mm a", width="medium"
-            ),
-            "waiting": st.column_config.TextColumn("Waiting", width="small"),
+            "account_name": st.column_config.TextColumn("Account", width="medium"),
+            "account_contact_count": st.column_config.NumberColumn("Contacts", width="small"),
+            "priority_route": st.column_config.TextColumn("Recommended route", width="medium"),
+            "waiting": st.column_config.TextColumn("Account waiting", width="small"),
             "engagement": st.column_config.TextColumn("Engagement", width="medium"),
             "status": st.column_config.TextColumn("Status", width="medium"),
             "owner": st.column_config.TextColumn("Owner", width="medium"),
@@ -512,48 +264,94 @@ with queue_tab:
     )
 
     if len(view):
-        st.markdown("### Lead details & next action")
+        st.markdown("### Account details & next action")
         lead_options = {
-            f"{row['name']} · {row['company']} · score {int(row['score']):02d} · {row['waiting']} waiting": row["lead_id"]
+            f"{row['account_name']} · score {int(row['score']):02d} · {int(row['account_contact_count'])} contact(s)": row["account_id"]
             for _, row in view.iterrows()
         }
-        selected_label = st.selectbox("Open lead", list(lead_options.keys()))
-        lead_id = lead_options[selected_label]
-        lead = df[df["lead_id"] == lead_id].iloc[0]
+        selected_label = st.selectbox("Open account", list(lead_options.keys()))
+        account_id = lead_options[selected_label]
+        account_contacts = df[df["account_id"] == account_id].copy()
+        lead = account_contacts.sort_values(
+            ["contact_qualification_score", "received_at"], ascending=[False, True]
+        ).iloc[0]
 
-        st.markdown(
-                f'<div class="priority-card"><h3>{lead["name"]} · {lead["company"]} · priority score {int(lead["score"])}/100</h3>'
-            f'<div class="muted">{lead["engagement"]} &nbsp;·&nbsp; '
-            f'{lead["waiting"]} waiting &nbsp;·&nbsp; {lead["owner"]}</div></div>',
-            unsafe_allow_html=True,
+        st.subheader(f"{lead['account_name']} · Priority Score {int(lead['score'])}/100")
+        st.caption(
+            f"{lead['priority_route']} · {lead['engagement']} · "
+            f"Account waiting {lead['waiting']} since earliest inbound · {lead['owner']}"
         )
 
         detail_col, action_col = st.columns([1.65, 1])
         with detail_col:
-            received_label = lead["received_at"].strftime("%b %d, %Y · %I:%M %p UTC")
-            st.markdown("**Lead profile**")
-            profile_contact, profile_account, profile_activity = st.columns(3)
-            with profile_contact:
-                st.caption("CONTACT")
+            received_label = (
+                lead["received_at"].strftime("%b %d, %Y · %I:%M %p UTC")
+                if pd.notna(lead["received_at"])
+                else "Unknown"
+            )
+            st.markdown("**Account overview**")
+            profile_account, profile_signals = st.columns(2)
+            with profile_account:
+                st.caption("ACCOUNT")
+                st.write(f"**{lead['account_name']}**")
+                st.write(f"{int(lead['company_size']):,} employees")
+                st.write(lead["account_type"])
+                st.caption(f"Account ID · {lead['account_id']}")
+            with profile_signals:
+                st.caption("COMBINED SIGNALS")
+                st.write(f"**{int(lead['account_contact_count'])} known contact(s)**")
+                st.write(f"{int(lead['account_activity_signal'])} recent account activities")
+                st.write(f"{int(lead['account_user_signal'])} known account user(s)")
+
+            st.markdown("**Primary contact**")
+            primary_contact, primary_source = st.columns(2)
+            with primary_contact:
                 st.write(f"**{lead['name']}**")
                 st.write(lead["email"])
                 st.write(lead["job_title"])
-                st.caption(f"Lead ID · {lead['lead_id']}")
-            with profile_account:
-                st.caption("COMPANY")
-                st.write(f"**{lead['company']}**")
-                st.write(f"{int(lead['company_size']):,} employees")
-                st.write(lead["account_type"])
-                st.caption(f"Persona · {lead['persona']}")
-            with profile_activity:
-                st.caption("ACTIVITY")
+                st.caption(f"Lead ID · {lead['lead_id']} · Persona · {lead['persona']}")
+            with primary_source:
                 st.write(f"**{lead['normalized_source']}**")
                 st.write(f"Received {received_label}")
-                st.write(f"{int(lead['account_activity_count'])} recent activities")
-                st.caption(f"{int(lead['same_company_users'])} user(s) from this company")
+                st.write(f"Contact waiting {lead['contact_waiting']}")
+                st.caption("Selected as primary because it has the strongest individual commercial signal.")
 
-            st.markdown("**What came in**")
+            st.markdown("**Primary inbound signal**")
             st.info(lead["inbound_text"])
+
+            contact_table = account_contacts.copy()
+            contact_table["contact_role"] = contact_table["lead_id"].apply(
+                lambda value: "Primary" if value == lead["lead_id"] else "Supporting"
+            )
+            contact_table = contact_table.sort_values(
+                ["contact_qualification_score", "received_at"], ascending=[False, True]
+            )
+            st.markdown("**Contacts at this account**")
+            st.dataframe(
+                contact_table[[
+                    "contact_role", "name", "email", "job_title", "normalized_source",
+                    "contact_qualification_score", "received_at", "contact_waiting", "inbound_text",
+                ]],
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "contact_role": st.column_config.TextColumn("Role", width="small"),
+                    "name": st.column_config.TextColumn("Contact", width="medium"),
+                    "email": st.column_config.TextColumn("Email", width="medium"),
+                    "job_title": st.column_config.TextColumn("Title", width="medium"),
+                    "normalized_source": st.column_config.TextColumn("Source", width="medium"),
+                    "contact_qualification_score": st.column_config.NumberColumn(
+                        "Individual signal", width="small"
+                    ),
+                    "received_at": st.column_config.DatetimeColumn(
+                        "Received", format="MMM D, h:mm a", width="medium"
+                    ),
+                    "contact_waiting": st.column_config.TextColumn(
+                        "Contact waiting", width="small"
+                    ),
+                    "inbound_text": st.column_config.TextColumn("Inbound signal", width="large"),
+                },
+            )
             s1, s2, s3 = st.columns(3)
             s1.metric("Potential", f"{int(lead['commercial_potential'])}/40")
             s2.metric("Intent", f"{int(lead['buying_intent'])}/35")
@@ -562,13 +360,14 @@ with queue_tab:
                 for reason in lead["why"].split(" | "):
                     st.markdown(f"- {reason}")
                 st.markdown(
-                    f"- Lead quality contribution: {int(lead['qualification_points'])}/85 "
-                    f"(the three-dimension subtotal scaled to 85%)"
+                    f"- Account quality contribution: {int(lead['qualification_points'])}/85 "
+                    f"from an unscaled quality score of {int(lead['qualification_score'])}/100"
                 )
                 st.markdown(
-                    f"- Waiting time: +{int(lead['time_points'])}/15 "
-                    f"({lead['waiting']} in the queue)"
+                    f"- Waiting-time contribution: +{int(lead['time_points'])}/15 "
+                    f"after {lead['waiting']}"
                 )
+                st.markdown(f"- Recommended route: {lead['priority_route']}")
                 if lead["self_serve"]:
                     st.markdown(
                         f"- Self-serve rule: lead quality below {SELF_SERVE_QUALITY_THRESHOLD} "
@@ -584,28 +383,119 @@ with queue_tab:
                 engagement_note = f"Assigned to {lead['owner']} by score and available capacity."
             elif lead["engagement"] == "Queued — unassigned":
                 engagement_note = (
-                    "All sales capacity is currently full. This lead remains ranked and will be "
+                    "All sales capacity is currently full. This account remains ranked and will be "
                     "assigned automatically when a slot opens."
                 )
             else:
                 engagement_note = "No sales owner is needed because this lead is handled through self-service."
             st.info(f"{lead['engagement']}: {engagement_note}")
-            current_status = lead["status"] if lead["status"] in STATUS_ORDER else "In Progress"
-            selected_status = st.selectbox(
-                "Lead status", STATUS_ORDER, index=STATUS_ORDER.index(current_status), key=f"status_{lead_id}"
-            )
+            st.write(f"**Current status:** {lead['status']}")
             st.caption(
-                "In Progress = actively being worked · Success = positive commercial outcome · "
-                "Rejection = closed without progressing"
+                "Salespeople record milestones, rejection reasons, opportunities, and next actions "
+                "in the salesperson workspace."
             )
-            if st.button("Save lead", type="primary", width="stretch", key=f"save_{lead_id}"):
-                row_index = st.session_state.leads.index[st.session_state.leads["lead_id"] == lead_id][0]
-                st.session_state.leads.loc[row_index, "owner_id"] = lead["owner_id"]
-                st.session_state.leads.loc[row_index, "status"] = selected_status
-                st.success("Lead updated for this demo session.")
-                st.rerun()
+            st.page_link(
+                "pages/1_Sales_Workspace.py",
+                label="Open salesperson workspace to update",
+                icon="👤",
+                width="stretch",
+            )
     else:
         st.info("No leads match these filters. Clear a filter to restore the queue.")
+
+with outcomes_tab:
+    st.markdown("### Outcome learning")
+    st.caption(
+        "Compare the original prioritization with structured commercial outcomes. "
+        "These are operational signals for calibration—not statistical proof from a small sample."
+    )
+    completed = account_df[account_df["status"].isin(["Success", "Rejected"])].copy()
+    customer_count = int((completed["qualification_outcome"] == "Qualified").sum())
+    opportunity_count = int(completed["opportunity_created"].fillna(False).astype(bool).sum())
+    resolved_count = len(completed)
+    outcome_metrics = st.columns(4)
+    outcome_metrics[0].metric("Resolved leads", resolved_count)
+    outcome_metrics[1].metric("Customers", customer_count)
+    outcome_metrics[2].metric("Opportunities", opportunity_count)
+    outcome_metrics[3].metric(
+        "Customer conversion",
+        f"{customer_count / resolved_count:.0%}" if resolved_count else "—",
+    )
+
+    if completed.empty:
+        st.info(
+            "No outcomes have been recorded yet. Close a lead in the salesperson workspace "
+            "to populate this learning view."
+        )
+    else:
+        source_summary = (
+            completed.groupby("normalized_source", as_index=False)
+            .agg(
+                resolved=("lead_id", "count"),
+                customers=("qualification_outcome", lambda values: int((values == "Qualified").sum())),
+                opportunities=("opportunity_created", lambda values: int(values.fillna(False).astype(bool).sum())),
+            )
+            .rename(columns={"normalized_source": "Source"})
+        )
+        source_summary["Customer conversion"] = (
+            source_summary["customers"] / source_summary["resolved"]
+        )
+        st.markdown("#### Outcomes by source")
+        st.dataframe(
+            source_summary,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "resolved": st.column_config.NumberColumn("Resolved"),
+                "customers": st.column_config.NumberColumn("Customers"),
+                "opportunities": st.column_config.NumberColumn("Opportunities"),
+                "Customer conversion": st.column_config.NumberColumn(
+                    "Customer conversion", format="percent"
+                ),
+            },
+        )
+        scored_outcomes = completed.copy()
+        scored_outcomes["decision_score"] = pd.to_numeric(
+            scored_outcomes["priority_score_at_outcome"], errors="coerce"
+        )
+        scored_outcomes = scored_outcomes.dropna(subset=["decision_score"])
+        if not scored_outcomes.empty:
+            scored_outcomes["Decision band"] = pd.cut(
+                scored_outcomes["decision_score"],
+                bins=[-1, 29, 44, 64, 100],
+                labels=["Self-serve", "Nurture / monitor", "Human review", "Engage now"],
+            )
+            band_summary = (
+                scored_outcomes.groupby("Decision band", observed=True, as_index=False)
+                .agg(
+                    resolved=("lead_id", "count"),
+                    customers=("qualification_outcome", lambda values: int((values == "Qualified").sum())),
+                )
+            )
+            band_summary["Customer conversion"] = (
+                band_summary["customers"] / band_summary["resolved"]
+            )
+            st.markdown("#### Outcomes by original decision band")
+            st.dataframe(
+                band_summary,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Customer conversion": st.column_config.NumberColumn(
+                        "Customer conversion", format="percent"
+                    )
+                },
+            )
+        st.markdown("#### Decision history")
+        st.dataframe(
+            completed[[
+                "name", "company", "normalized_source", "qualification_score_at_outcome",
+                "pipeline_stage", "qualification_outcome", "success_milestone", "disposition_reason",
+                "opportunity_stage", "estimated_value_band", "outcome_recorded_at",
+            ]],
+            hide_index=True,
+            width="stretch",
+        )
 
 with team_tab:
     st.markdown("### Commercial team")
@@ -618,11 +508,11 @@ with team_tab:
     workload_rows = []
     for card, (_, person) in zip(cards, team.iterrows()):
         person_leads = df[(df["owner_id"] == person["salesperson_id"]) & df["status"].isin(active_statuses)]
-        active = len(person_leads)
+        active = int(person_leads["account_id"].nunique())
         capacity = int(person["weekly_capacity"])
         workload_rows.append({
             "Salesperson": person["name"], "Role": person["role"], "Region": person["region"],
-            "Active leads": active, "Weekly capacity": capacity,
+            "Active accounts": active, "Weekly capacity": capacity,
             "Available slots": max(capacity - active, 0),
         })
         with card:
@@ -661,8 +551,7 @@ with add_tab:
         submitted = st.form_submit_button("Score this lead", type="primary")
 
     if submitted:
-        numeric_ids = [int(str(value).replace("L", "")) for value in st.session_state.leads["lead_id"]]
-        next_id = f"L{max(numeric_ids, default=0) + 1:03d}"
+        next_id = next_lead_id(st.session_state.leads)
         new_row = {
             "lead_id": next_id, "name": name, "email": email, "company": company,
             "company_size": int(company_size), "job_title": title, "source": source,
@@ -712,18 +601,18 @@ The system asks three simple questions:
 2. **Buying intent** — What evidence suggests active commercial evaluation?
 3. **Use-case maturity** — How concrete and deployment-ready is the problem?
 
-The three lead-quality dimensions are scaled to contribute **up to 85 points**. Waiting time contributes **up to 15 points**. Together they produce one final **priority score out of 100**, which determines queue order.
+The three evidence dimensions first produce a **lead-quality score out of 100**. Quality is scaled to contribute up to **85 points**, and waiting time contributes up to **15 points**, creating one final priority score.
 
-Sales capacity is assigned from the top of the ranked queue. Because salespeople are interchangeable in this version, each eligible lead goes to the person with the most capacity left. Leads that fall outside total team capacity are marked **Queued — unassigned** and receive the next available slot automatically.
+Contacts sharing an account are resolved into one commercial opportunity, one owner, and one capacity slot. Existing ownership remains stable. Whenever capacity opens, the highest-scoring eligible unassigned account receives the slot.
 
-A lead moves to **self-serve only when both conditions are true**: its unscaled lead-quality score is below 30 and it has waited at least 14 days. This prevents fresh but incomplete leads from being discarded too early.
+The time component is deliberately bounded, so urgency can move an older account up the running queue without overwhelming commercial quality. Low-quality accounts move to self-serve only after 14 days.
 
-Lead outcomes use three statuses: **In Progress** while the lead is actively being worked, **Success** after a positive commercial outcome, and **Rejection** when the lead is closed without progressing. Successes and rejections no longer consume active sales capacity, but retain the salesperson who handled them.
+Lead outcomes use three statuses: **In Progress** while the lead is actively being worked, **Success** after a positive commercial outcome, and **Rejected** when the lead is closed without progressing. Successes and rejected leads no longer consume active sales capacity, but retain the salesperson who handled them.
 
 **The current weights are hypotheses, not proven truth.** Historical meetings, opportunities, and revenue outcomes would be used to recalibrate them.
         """
     )
-    st.info("Rank every lead, use scarce sales capacity from the top down, and age low-quality leads into self-service.")
+    st.info("Resolve signals to accounts, rank one running queue, allocate available capacity, and learn from outcomes.")
 
 st.caption(
     "Prototype only · Team members are fictional · Changes are stored only for this browser session · "
