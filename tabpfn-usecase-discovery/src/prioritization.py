@@ -27,10 +27,10 @@ def prioritize(
 def recommendation(results: list[PriorityResult]) -> str:
     viable = [r for r in results if r.use_case.support != SupportLevel.DATA_GAP and r.data_feasibility != ReadinessStatus.BLOCKED.value]
     if not viable:
-        return "First resolve the listed data gaps and confirm the intended analysis before launching a POC."
+        return "Update the dataset or objective to resolve the listed data gaps before evaluation."
     winner = viable[0]
     if winner.data_feasibility == ReadinessStatus.READY.value:
-        review_note = "The data review supports an initial evaluation."
+        review_note = "Automatic data checks support an initial evaluation."
     else:
-        review_note = "The initial evaluation should use the safeguards identified in the data review."
+        review_note = "Compare its measured results with traditional approaches in the evaluation."
     return f"Proceed with **{winner.use_case.name}** as the proposed approach. It matches the confirmed objective. {review_note}"

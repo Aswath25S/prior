@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.generate_sample_data import manufacturing, retail, unlabeled_manufacturing
+from scripts.generate_sample_data import manufacturing, retail
 from src.data_profiler import profile_dataset
 from src.readiness import assess_readiness, detect_leakage_warnings
 from src.schemas import BusinessContext, ReadinessStatus, SupportLevel, UseCase
@@ -35,7 +35,7 @@ def test_retail_discovery_is_regression_and_temporal_warning():
 
 
 def test_no_target_is_honest_data_gap():
-    df = unlabeled_manufacturing()
+    df = manufacturing(rows=300).drop(columns=["failure_next_30_days", "failure_resolution_days"])
     cases = discover_use_cases(df, profile_dataset(df), context("Manufacturing", "reduce machine downtime"))
     failure = next(c for c in cases if c.key == "equipment_failure")
     assert failure.support == SupportLevel.DATA_GAP

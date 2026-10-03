@@ -14,13 +14,12 @@ from src.benchmark import BenchmarkError, prepare_benchmark, recommended_feature
 from src.analysis import analysis_columns, run_tabpfn_analysis
 from src.result_views import render_analysis, render_benchmark
 from src.capabilities import CAPABILITIES
-from src.expert_review import evaluate_expert_review
 from src.objective_refinement import RefinedObjective, RefinementError, ROUTE_LABELS, refine_objective, route_brief
 from src.data_loader import DataValidationError, load_csv
 from src.data_profiler import profile_dataset
 from src.prioritization import prioritize, recommendation
 from src.readiness import assess_readiness, suspected_leakage_columns
-from src.schemas import BusinessContext, ExpertReview, ReadinessAssessment, ReadinessStatus, SupportLevel
+from src.schemas import BusinessContext, ReadinessStatus, SupportLevel
 
 
 ROOT = Path(__file__).resolve().parent
@@ -28,7 +27,6 @@ load_dotenv(ROOT / ".env", override=False)
 SAMPLES = {
     "Manufacturing — equipment failure": ROOT / "data/samples/synthetic_manufacturing.csv",
     "Retail — product demand": ROOT / "data/samples/synthetic_retail.csv",
-    "Manufacturing — outcome absent": ROOT / "data/samples/synthetic_manufacturing_unlabeled.csv",
 }
 SAMPLE_DESCRIPTIONS = {
     "Manufacturing — equipment failure": (
@@ -42,14 +40,16 @@ SAMPLE_DESCRIPTIONS = {
         "promotions, holidays, seasonal patterns, and store/product differences. The proposed outcome is "
         "units sold; the dated history demonstrates why demand forecasting needs chronological evaluation."
     ),
-    "Manufacturing — outcome absent": (
-        "Each row represents a synthetic machine observation with operating conditions and maintenance "
-        "history. Failure outcomes have deliberately been removed. This example demonstrates how the "
-        "engine identifies a possible opportunity but requests historical labels before benchmarking."
-    ),
 }
-STATUS_ICON = {
-    ReadinessStatus.READY: "✅", ReadinessStatus.INVESTIGATE: "⚠️", ReadinessStatus.BLOCKED: "⛔",
+SAMPLE_GENERATION_OBJECTIVES = {
+    "Manufacturing — equipment failure": (
+        "Create realistic machine history for exploring whether equipment likely to fail within the next "
+        "30 days can be identified early enough to prioritize preventive inspection and maintenance."
+    ),
+    "Retail — product demand": (
+        "Create dated store-and-product sales history for exploring whether future unit demand can be "
+        "forecast from price, promotions, holidays, seasonality, and store and product differences to support inventory planning."
+    ),
 }
 
 
@@ -73,12 +73,12 @@ st.markdown("""
 
 st.markdown('<div class="eyebrow">Unofficial local prototype</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero">TabPFN Use-Case Discovery Engine</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtle">Turn a tabular dataset and a business question into a clear TabPFN opportunity, a data-readiness review, and a measured initial evaluation.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtle">Turn a tabular dataset and a business question into a clear TabPFN opportunity and a measured initial evaluation.</div>', unsafe_allow_html=True)
 progress = st.empty()
 
 
 def show_step(step: int) -> None:
-    labels = ['Dataset', 'Objective', 'Review data', 'Recommendation', 'Evaluate', 'Next steps']
+    labels = ['Dataset', 'Objective', 'Recommendation', 'Evaluate', 'Next steps']
     badges = ''.join(f"<span class='step{' active' if i == step else ''}'>{i} {label}</span>" for i, label in enumerate(labels, 1))
     progress.markdown(f"<div class='steps'>{badges}</div>", unsafe_allow_html=True)
 
@@ -109,6 +109,7 @@ dataset_name = ""
 with source_tab:
     example = st.selectbox("Example dataset", list(SAMPLES))
     st.write(SAMPLE_DESCRIPTIONS[example])
+    st.markdown(f"**Why this dataset was generated:** {SAMPLE_GENERATION_OBJECTIVES[example]}")
     st.caption("All built-in records are deterministic, locally generated, and entirely synthetic.")
     if st.button("Load synthetic example", type="primary", width="stretch"):
         st.session_state["sample_source"] = ("sample", example)
@@ -126,7 +127,7 @@ if st.session_state.get("active_source_identity") != source_identity:
     st.session_state.pop('workflow_step', None)
     for state_key in (
         "benchmark_result", "benchmark_context",
-        "assessment_choice", "benchmark_choice", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields",
+        "benchmark_choice", "evaluation_fields", "analysis_fields",
     ):
         st.session_state.pop(state_key, None)
     st.session_state["active_source_identity"] = source_identity
@@ -190,7 +191,7 @@ context = BusinessContext(industry=industry, objective=objective, data_descripti
 context_identity = (source_identity, industry, objective, data_description, selected_target)
 if st.session_state.get("analysis_context") != context_identity:
     st.session_state.pop('workflow_step', None)
-    for state_key in ("benchmark_result", "benchmark_context", "assessment_choice", "benchmark_choice", "refinement_draft", "confirmed_brief", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields"):
+    for state_key in ("benchmark_result", "benchmark_context", "benchmark_choice", "refinement_draft", "confirmed_brief", "evaluation_fields", "analysis_fields"):
         st.session_state.pop(state_key, None)
     for state_key in list(st.session_state):
         if state_key.startswith('brief_edit_'):
@@ -207,7 +208,7 @@ if st.button('Refine objective', disabled=not openai_key or not objective.strip(
         st.session_state['refinement_draft'] = draft
         st.session_state.pop('workflow_step', None)
         for state_key in list(st.session_state):
-            if state_key.startswith('brief_edit_') or state_key in ('confirmed_brief', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice'):
+            if state_key.startswith('brief_edit_') or state_key in ('confirmed_brief', 'benchmark_result', 'benchmark_context', 'benchmark_choice'):
                 st.session_state.pop(state_key, None)
     except RefinementError as exc:
         st.error(str(exc))
@@ -232,18 +233,18 @@ if draft:
             route_brief(confirmed, df, profile)
             st.session_state['confirmed_brief'] = confirmed
             st.session_state['workflow_step'] = 3
-            for state_key in ('benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'expert_review', 'expert_review_context', 'evaluation_fields', 'analysis_fields'):
+            for state_key in ('benchmark_result', 'benchmark_context', 'benchmark_choice', 'evaluation_fields', 'analysis_fields'):
                 st.session_state.pop(state_key, None)
         except RefinementError as exc:
             st.error(str(exc))
             st.stop()
     if st.button('Discard refined objective'):
         st.session_state.pop('workflow_step', None)
-        for state_key in ('refinement_draft', 'confirmed_brief', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'expert_review', 'expert_review_context'):
+        for state_key in ('refinement_draft', 'confirmed_brief', 'benchmark_result', 'benchmark_context', 'benchmark_choice'):
             st.session_state.pop(state_key, None)
         st.rerun()
     if 'confirmed_brief' not in st.session_state:
-        st.info('Review and apply the brief to continue to assessment and evaluation.')
+        st.info('Review and apply the brief to continue to the recommendation and evaluation.')
         st.stop()
 
 confirmed = st.session_state.get('confirmed_brief')
@@ -282,98 +283,15 @@ for uc in opportunities:
         fields_to_check = suspected_leakage_columns(df, uc.target)
         if fields_to_check:
             st.write("**Fields to check:** " + ", ".join(f"`{column}`" for column in fields_to_check))
-            st.caption("These fields may only be known after the outcome. Confirm their timing in Step 3; they are excluded from the recommended inputs unless approved.")
+            st.caption("These fields may only be known after the outcome. They are excluded from the recommended inputs by default.")
         if profile.identifier_columns:
             st.write("**Identifier-like fields:** " + ", ".join(f"`{column}`" for column in profile.identifier_columns))
             st.caption("Unique identifiers are excluded by default because they usually name a record rather than describe its condition.")
-        st.caption('An initial evaluation can be run in Step 5.')
+        st.caption('An initial evaluation can be run in Step 4.')
 
 st.divider()
 show_step(3)
-st.header("3 · Validate the data with your expertise")
-st.write("Confirm what the app cannot tell from the CSV: whether the outcome means what you expect, the inputs are available in time, the history reflects real operations, and someone can act on the result. Your answers guide whether to proceed or resolve a data issue first.")
-assessment_choice = opportunities[0]
-assessment = assessments[assessment_choice.key]
-review_context = (source_identity, assessment_choice.key, assessment_choice.target)
-flagged_columns = suspected_leakage_columns(df, assessment_choice.target)
-
-requires_target = assessment_choice.capability in {"prediction", "interpretability"}
-with st.form("expert_data_review"):
-    if requires_target:
-        target_meaning = st.radio(
-            f"Does `{assessment_choice.target or 'the proposed outcome'}` represent the outcome you care about?",
-            ["Not sure", "Yes", "No"], horizontal=True,
-        )
-    else:
-        target_meaning = "Not applicable"
-    feature_timing = st.radio(
-        "Would the proposed input fields be available when this result is needed?",
-        ["Not sure", "All are available", "Some are unavailable"], horizontal=True,
-    )
-    approved_flagged = st.multiselect(
-        "Which flagged fields are definitely available before the outcome or decision?",
-        flagged_columns,
-        help="Leave a field unselected if there is any doubt. Unselected fields remain excluded.",
-    ) if flagged_columns else []
-    if profile.missing_total:
-        missing_values = st.radio(
-            "Why are some values missing?",
-            ["Not sure", "Expected and understood", "Collection problem"], horizontal=True,
-        )
-    else:
-        missing_values = "Not applicable"
-    representative_history = st.radio(
-        "Does this data reflect the people, equipment, products, or conditions where the result will be used?",
-        ["Not sure", "Yes", "No"], horizontal=True,
-    )
-    actionability = st.radio(
-        "Is there a person or team that can act on the result?",
-        ["Not sure", "Yes", "No"], horizontal=True,
-    )
-    submit_review = st.form_submit_button("Save answers and continue", type="primary")
-
-if submit_review:
-    expert_review = ExpertReview(target_meaning, feature_timing, missing_values, representative_history, actionability, approved_flagged)
-    review_result = evaluate_expert_review(assessment_choice, assessment, expert_review)
-    st.session_state["expert_review"] = (expert_review, review_result)
-    st.session_state["expert_review_context"] = review_context
-    st.session_state["workflow_step"] = 3 if review_result.status == ReadinessStatus.BLOCKED else 4
-    for state_key in ("benchmark_result", "benchmark_context", "benchmark_choice", "evaluation_fields", "analysis_fields"):
-        st.session_state.pop(state_key, None)
-
-saved_review = st.session_state.get("expert_review") if st.session_state.get("expert_review_context") == review_context else None
-if not saved_review:
-    st.info("Confirm the review above to continue.")
-    st.stop()
-expert_review, review_result = saved_review
-assessment = ReadinessAssessment(
-    review_result.status, assessment.observed_facts, review_result.reasons,
-    review_result.next_steps, assessment.leakage_warnings,
-    assessment.deployment_questions, assessment.target_summary,
-)
-assessments[assessment_choice.key] = assessment
-if review_result.headline:
-    st.subheader(f"{STATUS_ICON[review_result.status]} {review_result.headline}")
-for reason in review_result.reasons:
-    st.write(f"- {reason}")
-if review_result.next_steps:
-    with st.expander("What to do next"):
-        for action in review_result.next_steps:
-            st.write(f"- {action}")
-
-if assessment.target_summary.get("class_distribution"):
-    distribution = pd.Series(assessment.target_summary["class_distribution"]).rename_axis("class").reset_index(name="rows")
-    st.plotly_chart(px.bar(distribution, x="class", y="rows", title="How often each outcome appears", color_discrete_sequence=["#5271e6"]), width="stretch")
-elif assessment_choice.target and assessment_choice.target in df and assessment_choice.task_type == "regression":
-    st.plotly_chart(px.histogram(df, x=assessment_choice.target, nbins=30, title="Range of observed outcome values", color_discrete_sequence=["#5271e6"]), width="stretch")
-
-if review_result.status == ReadinessStatus.BLOCKED:
-    st.warning("Resolve the issue above, then update and confirm this review before continuing.")
-    st.stop()
-
-st.divider()
-show_step(4)
-st.header("4 · Review the recommendation")
+st.header("3 · Review the recommendation")
 ranking = prioritize(opportunities, assessments)
 st.info(recommendation(ranking))
 for result in ranking:
@@ -386,11 +304,20 @@ for result in ranking:
         cols[1].caption("IMPLEMENTATION EFFORT")
         cols[1].write(result.implementation_complexity)
         cols[2].caption("NEXT STEP")
-        cols[2].write("Run an initial evaluation")
+        blocked = assessments[result.use_case.key].status == ReadinessStatus.BLOCKED
+        cols[2].write("Update the dataset or objective" if blocked else "Run an initial evaluation")
+
+assessment = assessments[opportunities[0].key]
+if assessment.status == ReadinessStatus.BLOCKED:
+    for reason in assessment.risks:
+        st.warning(reason)
+    for action in assessment.actions:
+        st.write(action)
+    st.stop()
 
 st.divider()
-continue_to(5, 'Continue to evaluation')
-st.header("5 · Evaluate the proposed approach")
+continue_to(4, 'Continue to evaluation')
+st.header("4 · Evaluate the proposed approach")
 benchmark_case = st.selectbox("Confirmed use case", opportunities, format_func=lambda x: x.name, key="benchmark_choice")
 benchmark_assessment = assessments[benchmark_case.key]
 benchmark_result = None
@@ -412,11 +339,7 @@ if supervised:
         st.write("Test estimates on the latest historical dates and compare them with the values that actually occurred.")
     else:
         st.write("Compare TabPFN with simple approaches on unseen records, then inspect correct results, mistakes, and influential fields.")
-    approved_flagged_columns = set(expert_review.approved_flagged_columns)
-    leakage_columns = [
-        column for column in suspected_leakage_columns(df, benchmark_case.target)
-        if column not in approved_flagged_columns
-    ]
+    leakage_columns = suspected_leakage_columns(df, benchmark_case.target)
     defaults, excluded = recommended_features(df, profile, runner_case, leakage_columns)
     if benchmark_case.suggested_columns:
         defaults = [c for c in defaults if c in benchmark_case.suggested_columns]
@@ -500,8 +423,8 @@ if benchmark_result:
         render_analysis(benchmark_result)
 
 st.divider()
-continue_to(6, 'If interested, see official next steps')
-st.header("6. Interested ? Possible next steps")
+continue_to(5, 'If interested, see official next steps')
+st.header("5. Interested ? Possible next steps")
 st.write("Use these official resources to learn more, try TabPFN directly, inspect implementation examples, or discuss a real use case with Prior Labs.")
 
 capability_docs = {

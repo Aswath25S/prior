@@ -62,16 +62,11 @@ def retail(seed: int = 84, days: int = 240, stores: int = 4, products: int = 5) 
     return frame
 
 
-def unlabeled_manufacturing(seed: int = 126, rows: int = 300) -> pd.DataFrame:
-    return manufacturing(seed, rows).drop(columns=["failure_next_30_days", "failure_resolution_days"])
-
-
 def main() -> None:
     output = ROOT / "data" / "samples"
     output.mkdir(parents=True, exist_ok=True)
     manufacturing().to_csv(output / "synthetic_manufacturing.csv", index=False)
     retail().to_csv(output / "synthetic_retail.csv", index=False)
-    unlabeled_manufacturing().to_csv(output / "synthetic_manufacturing_unlabeled.csv", index=False)
     print(f"Generated sample data in {output}")
 
 

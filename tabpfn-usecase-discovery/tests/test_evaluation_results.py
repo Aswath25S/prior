@@ -160,9 +160,10 @@ def test_result_views_render_measured_artifacts(kind, fake_client, monkeypatch):
         assert chart["data"][0]["type"] == "waterfall"
         assert "Measure to compare" not in [select.label for select in app.selectbox]
         assert "Inspect an individual result" in [select.label for select in app.selectbox]
-        assert "Download prediction explanations" in [button.label for button in app.get("download_button")]
+        assert "Download prediction explanations" not in [button.label for button in app.get("download_button")]
     assert "How to interpret this evaluation" in [expander.label for expander in app.expander]
-    assert len(app.get("download_button")) >= 1
+    if kind in {"imputation", "anomaly_detection", "synthetic_generation"}:
+        assert len(app.get("download_button")) >= 1
 
 
 def test_multiclass_shap_explains_each_records_predicted_class(fake_client):
@@ -182,8 +183,30 @@ def click(app, label):
     assert not app.exception
 
 
+@pytest.mark.parametrize("route", ["classification", "interpretability"])
+def test_missing_outcome_shows_data_gap_without_questionnaire(route, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    brief = RefinedObjective(
+        objective="Investigate equipment failures", business_decision="Prioritize inspections",
+        route=route, target=None, relevant_columns=["temperature_c", "vibration_level"],
+        rationale="Requires historical outcomes", deliverable="Reviewable results",
+        success_criteria=[], questions=[],
+    )
+    monkeypatch.setattr("src.objective_refinement.refine_objective", lambda *args, **kwargs: brief)
+    app = AppTest.from_file("../app.py").run(timeout=30)
+    click(app, "Load synthetic example")
+    app.text_area[0].input("Investigate equipment failures").run()
+    click(app, "Refine objective")
+    click(app, "Use this objective and capability")
+    assert "3 · Review the recommendation" in [header.value for header in app.header]
+    assert app.warning
+    assert not app.radio
+    assert "Continue to evaluation" not in [button.label for button in app.button]
+    assert "Run TabPFN evaluation" not in [button.label for button in app.button]
+
+
 @pytest.mark.parametrize("route", ["classification", "regression", "forecasting", "interpretability", "imputation", "anomaly_detection", "synthetic_generation"])
-def test_step_five_runs_and_exports_results_for_each_route(route, fake_client, monkeypatch):
+def test_evaluation_runs_without_expert_questionnaire_for_each_route(route, fake_client, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setenv("TABPFN_TOKEN", "test")
     targetless = route in {"imputation", "anomaly_detection", "synthetic_generation"}
@@ -200,8 +223,15 @@ def test_step_five_runs_and_exports_results_for_each_route(route, fake_client, m
     app.text_area[0].input("Evaluate the proposed operational analysis").run()
     click(app, "Refine objective")
     click(app, "Use this objective and capability")
-    click(app, "Save answers and continue")
+    assert "3 · Review the recommendation" in [header.value for header in app.header]
+    assert not app.radio
+    assert "Save answers and continue" not in [button.label for button in app.button]
     click(app, "Continue to evaluation")
+    assert "4 · Evaluate the proposed approach" in [header.value for header in app.header]
+    if not targetless and route != "forecasting":
+        fields = next(select for select in app.multiselect if select.label == "Fields to use")
+        assert "failure_resolution_days" not in fields.value
+        assert "machine_id" not in fields.value
     next(box for box in app.checkbox if "permitted" in box.label).check().run()
     click(app, "Run TabPFN evaluation")
     assert app.session_state["benchmark_result"] is not None
@@ -209,12 +239,15 @@ def test_step_five_runs_and_exports_results_for_each_route(route, fake_client, m
         assert app.session_state["benchmark_result"].feature_importance is None
         assert app.session_state["benchmark_result"].case_explanations is not None
     assert any("Evaluation completed" in success.value for success in app.success)
-    assert len(app.get("download_button")) >= 1
+    if targetless:
+        assert len(app.get("download_button")) >= 1
+    assert "Download prediction explanations" not in [button.label for button in app.get("download_button")]
     # A chart selection should rerun the UI without running the API again.
     calls = len(fake_client)
     app.run()
     assert len(fake_client) == calls
     click(app, "If interested, see official next steps")
+    assert "5. Interested ? Possible next steps" in [header.value for header in app.header]
     links = {button.label: button.url for button in app.get("link_button")}
     assert links["Documentation overview ↗"] == "https://docs.priorlabs.ai/overview"
     assert links["Quickstart ↗"] == "https://docs.priorlabs.ai/quickstart"

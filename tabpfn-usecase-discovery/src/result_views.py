@@ -74,7 +74,6 @@ def render_explanations(result: BenchmarkResult):
         _chart(figure)
         st.caption("Red contributions raise the prediction; blue contributions lower it. The reference prediction plus all SHAP values equals this record's prediction. SHAP explains model behavior, not cause and effect.")
         st.caption(f"{case.iloc[0]['Method']} · Reference: {int(case.iloc[0]['Background records'])} sampled learning records.")
-        st.download_button("Download prediction explanations", explanations.to_csv(index=False), "prediction-explanations.csv", "text/csv")
 
 
 def render_analysis(result: AnalysisResult):

@@ -59,4 +59,4 @@ CAPABILITIES = {
 def execution_note(capability: str) -> str:
     if capability == "prediction":
         return "Prediction benchmark available in this app."
-    return "Initial client-based evaluation available in Step 5; confirm the method and its limitations before treating it as a full POC."
+    return "Initial client-based evaluation available in Step 4; confirm the method and its limitations before treating it as a full POC."

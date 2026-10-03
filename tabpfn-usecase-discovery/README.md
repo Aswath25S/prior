@@ -1,6 +1,6 @@
 # TabPFN Use-Case Discovery Engine
 
-An unofficial prototype that turns a tabular dataset and business context into a confirmed TabPFN use case, expert-guided data checks, and an optional measured evaluation. It then directs interested users to official Prior Labs documentation, API access, examples, community support, and contact options. Discovery and profiling run locally. TabPFN cloud inference runs only after explicit user confirmation. The app does not calculate ROI or claim production readiness.
+An unofficial prototype that turns a tabular dataset and business context into a confirmed TabPFN use case, automatic data checks, and an optional measured evaluation. It then directs interested users to official Prior Labs documentation, API access, examples, community support, and contact options. Discovery and profiling run locally. TabPFN cloud inference runs only after explicit user confirmation. The app does not calculate ROI or claim production readiness.
 
 ## Run locally
 
@@ -43,7 +43,7 @@ Add `OPENAI_API_KEY="your-key"` and optionally `OPENAI_MODEL="gpt-4.1-mini"` to 
 
 Refinement uses the Responses API with a strict typed response and `store=False`. It sends the four context inputs and computed schema/statistics; it does not send raw rows. User-entered descriptions and column names are included, so avoid inserting secrets into them. Errors leave local discovery available. Calls occur only on the refinement button, not on every rerun.
 
-The confirmed primary capability directly routes the assessment, evaluation, and recommended official documentation. All supported categories have a Step 5 evaluation with measured charts and downloadable records. Ambiguous or unsupported goals can route to clarification. Invalid column references are rejected locally; the API's valid format does not guarantee a semantically correct recommendation. Users can correct the brief before applying it.
+The confirmed primary capability directly routes the automatic assessment, evaluation, and recommended official documentation. The five steps are dataset selection, objective refinement, recommendation, evaluation, and possible next steps. There is no separate expert questionnaire or data-review confirmation. All supported categories have a Step 4 evaluation with measured results. Ambiguous or unsupported goals can route to clarification. Invalid column references are rejected locally; the API's valid format does not guarantee a semantically correct recommendation. Users can correct the brief before applying it.
 
 The proposed feature list is intersected with conservative evaluation defaults; targets and suspected leakage fields are excluded by default. Changing source inputs invalidates the brief and all dependent results.
 
@@ -66,7 +66,18 @@ pytest -q
 - `src/analysis.py`: bounded conditional TabPFN workflows for imputation, anomaly ranking, and synthetic sampling.
 - `src/result_views.py`: model comparison tables, individual SHAP waterfalls, and downloads.
 - `src/shap_explanations.py`: exact or permutation-estimated empirical interventional Shapley values for the API model.
-- `scripts/generate_sample_data.py`: reproducible synthetic manufacturing, retail, and absent-target examples.
+- `scripts/generate_sample_data.py`: reproducible synthetic equipment-failure and retail-demand examples.
+
+## Built-in example datasets
+
+Each example shows a data description and the objective behind its generation. Enter the objective you want to explore in Step 2, then refine it to choose the analysis.
+
+| Example | Intended exploration |
+| --- | --- |
+| Manufacturing — equipment failure | Classify 30-day failure risk to prioritize maintenance |
+| Retail — product demand | Forecast dated store/product demand for inventory planning |
+
+The manufacturing example contains 1,500 machine observations; retail contains 4,800 daily store/product records. Both are generated locally with fixed random seeds; the generation process does not call OpenAI or TabPFN.
 
 ## Heuristic boundaries
 
@@ -77,7 +88,7 @@ All evaluations use the installed TabPFN API client; no GPU or second virtual en
 - Classification: one table compares traditional models and TabPFN across accuracy, balanced accuracy, precision, recall, F1, and applicable AUC scores.
 - Regression: one comparison table shows MAE, RMSE, and R². Model prediction ranges remain available in the measured artifacts.
 - Forecasting: whole-date chronological holdout with the same numeric comparison table. This tests historical supplied inputs; it does not implement multi-step future forecasting or generate future covariates.
-- Interpretation: retains one “Inspect an individual result” SHAP waterfall, an explanation download, and expandable guidance. Empirical interventional SHAP uses eight sampled learning records as the reference background and explains up to five unseen records with at most 12 fields. Up to six fields use the exact Shapley formula for that finite background; larger feature sets use 16 sampled permutations. Contributions add to the difference between the reference output and the record's output, including nonlinear interactions. Binary analyses explain the less common training outcome's probability; multiclass analyses explain each record's predicted class probability; numeric analyses explain the estimated value. These require additional API requests. Results depend on the sampled background, and mixed-field combinations may be unrealistic for correlated fields. SHAP values describe model behavior, not causal effects. The backend can also compute global permutation importance, but the simplified UI skips these extra calls.
+- Interpretation: retains one “Inspect an individual result” SHAP waterfall and expandable guidance. Empirical interventional SHAP uses eight sampled learning records as the reference background and explains up to five unseen records with at most 12 fields. Up to six fields use the exact Shapley formula for that finite background; larger feature sets use 16 sampled permutations. Contributions add to the difference between the reference output and the record's output, including nonlinear interactions. Binary analyses explain the less common training outcome's probability; multiclass analyses explain each record's predicted class probability; numeric analyses explain the estimated value. These require additional API requests. Results depend on the sampled background, and mixed-field combinations may be unrealistic for correlated fields. SHAP values describe model behavior, not causal effects. The backend can also compute global permutation importance, but the simplified UI skips these extra calls.
 - Missing-value recovery: holds out 20% of rows, masks known cells one field at a time, compares recovery with training-only median/mode, and fills real gaps in held-out records. Downloads preserve original missing flags. Artificial masking does not establish accuracy for actual missing cells.
 - Unusual-record ranking: predicts each field from the others and aggregates numeric scaled residual/category probability surprise percentiles. Shows a comparison table with Isolation Forest and one record-level field surprise chart. Alert-list agreement is not accuracy; precision/recall require review labels.
 - Synthetic generation: samples the first field empirically, then uses conditional TabPFN category probabilities or numeric quantiles for subsequent fields. Compares marginal distributions, pairwise encoded relationships, and exact reference matches against untouched holdout records and a resampling baseline. Numeric sampling uses the middle 90% of quantiles; missingness is not synthesized, and extreme values may be underrepresented. No privacy guarantee is made.
@@ -88,4 +99,4 @@ Result pages show comparison tables rather than collections of charts. Missing-v
 
 Column names and lightweight statistics cannot establish business meaning, feature availability, causality, or regulatory acceptability. Every discovered opportunity is a candidate requiring confirmation. Leakage matches are warnings, not assertions. Evaluation metrics come from a single holdout and do not establish production performance or business impact. Changes to the dataset or business context clear prior results.
 
-Step 6 does not generate a proposal. It links to the official documentation overview, quickstart, recommended capability guide, API-key management, benchmarking guide, client and extension repositories, TabPFN Discord, and the Prior Labs contact page.
+Step 5 does not generate a proposal. It links to the official documentation overview, quickstart, recommended capability guide, API-key management, benchmarking guide, client and extension repositories, TabPFN Discord, and the Prior Labs contact page.
