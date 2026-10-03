@@ -7,6 +7,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from .schemas import DatasetProfile, ReadinessAssessment, ReadinessStatus, UseCase
+from .capabilities import CAPABILITIES
 
 
 POST_EVENT_TERMS = ("resolution", "resolved", "after", "post_", "close_date", "closed_at", "actual_outcome", "failure_date")
@@ -57,6 +58,27 @@ def detect_leakage_warnings(df: pd.DataFrame, target: str | None, forecasting: b
 
 
 def assess_readiness(df: pd.DataFrame, profile: DatasetProfile, use_case: UseCase) -> ReadinessAssessment:
+    if use_case.capability != "prediction":
+        guide = CAPABILITIES[use_case.capability]
+        usable = [c for c in df if c not in profile.identifier_columns and c not in profile.constant_columns]
+        blocked = len(usable) < 2 or profile.rows < 50
+        risks = [guide["risk"]]
+        if guide["requires_target"] and (not use_case.target or use_case.target not in df or df[use_case.target].dropna().nunique() < 2):
+            blocked = True
+            risks.append("A varying outcome is required to explain a supervised model.")
+        if len(usable) < 2 or profile.rows < 50:
+            risks.append("This initial evaluation needs at least 50 records and two informative fields.")
+        if use_case.capability == "imputation" and not profile.missing_total:
+            risks.append("No missing cells were observed. Confirm a future missing-data scenario before proceeding.")
+        return ReadinessAssessment(
+            ReadinessStatus.BLOCKED if blocked else ReadinessStatus.INVESTIGATE,
+            [f"Dataset contains {profile.rows:,} rows and {profile.columns} columns.",
+             f"Observed {profile.missing_total:,} missing cells and {profile.duplicate_rows:,} duplicate rows.",
+             "A fixed outcome label is not required for this capability." if not guide["requires_target"] else f"Proposed explanatory outcome: {use_case.target or 'not specified'}"],
+            risks, [guide["design"], "Confirm the intended action and agree on evaluation criteria.", "Integrate and validate the experimental extension runner before execution."],
+            [], ["Who will use the output, and what decision will it support?", guide["success"],
+                 "Which columns and records are appropriate for this analysis?"],
+        )
     facts = [f"Dataset contains {profile.rows:,} rows and {profile.columns} columns."]
     risks: list[str] = []
     actions: list[str] = []

@@ -18,9 +18,9 @@ def pipeline():
 
 def test_prioritization_explains_user_inputs():
     _, _, _, cases, assessments = pipeline()
-    ranked = prioritize(cases, assessments, "High", "Medium")
+    ranked = prioritize(cases, assessments)
     assert ranked
-    assert "high" in ranked[0].recommendation_reason
+    assert "objective" in ranked[0].recommendation_reason
     assert "Investigate" in recommendation(ranked)
 
 

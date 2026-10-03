@@ -10,13 +10,14 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from src.benchmark import BenchmarkError, prepare_benchmark, recommended_features, run_tabpfn_benchmark
+from src.capabilities import CAPABILITIES, execution_note
+from src.objective_refinement import RefinedObjective, RefinementError, ROUTE_LABELS, refine_objective, route_brief
 from src.data_loader import DataValidationError, load_csv
 from src.data_profiler import profile_dataset
 from src.poc_generator import generate_poc_markdown
 from src.prioritization import prioritize, recommendation
 from src.readiness import assess_readiness, suspected_leakage_columns
 from src.schemas import BusinessContext, ReadinessStatus, SupportLevel
-from src.use_case_discovery import discover_use_cases
 
 
 ROOT = Path(__file__).resolve().parent
@@ -70,13 +71,31 @@ st.markdown("""
 st.markdown('<div class="eyebrow">Unofficial local prototype</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero">TabPFN Use-Case Discovery Engine</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtle">Turn a tabular dataset and a business question into transparent opportunity candidates, a data-readiness assessment, and an actionable POC scope.</div>', unsafe_allow_html=True)
-st.markdown("<div class='steps'><span class='step active'>1 Dataset</span><span class='step'>2 Discover</span><span class='step'>3 Assess</span><span class='step'>4 Prioritize</span><span class='step'>5 Benchmark</span><span class='step'>6 POC Plan</span></div>", unsafe_allow_html=True)
+progress = st.empty()
+
+
+def show_step(step: int) -> None:
+    labels = ['Dataset', 'Discover', 'Assess', 'Prioritize', 'Evaluate', 'POC Plan']
+    badges = ''.join(f"<span class='step{' active' if i == step else ''}'>{i} {label}</span>" for i, label in enumerate(labels, 1))
+    progress.markdown(f"<div class='steps'>{badges}</div>", unsafe_allow_html=True)
+
+
+def continue_to(step: int, label: str) -> None:
+    if st.session_state.get('workflow_step', 3) < step:
+        if st.button(label, type='primary', key=f'continue_step_{step}'):
+            st.session_state['workflow_step'] = step
+        else:
+            st.stop()
+    show_step(step)
+
+
+show_step(1)
 st.write("")
 
 with st.sidebar:
     st.header("About this V1")
-    st.caption("Uploaded data is processed in this local Streamlit process and is not sent to an external API or stored by the app.")
-    st.caption("Discovery uses explicit heuristics. TabPFN runs only when you explicitly start a benchmark. Results do not establish ROI or production readiness.")
+    st.caption("Profiling runs locally. Refine objective sends your context and computed schema summary to OpenAI. The TabPFN benchmark sends selected data only when you start it.")
+    st.caption("Discovery can use local rules or a confirmed AI brief. Results do not establish ROI or production readiness.")
 
 st.header("1 · Choose a dataset")
 source_tab, upload_tab = st.tabs(
@@ -101,6 +120,7 @@ source_identity = (
     if source else None
 )
 if st.session_state.get("active_source_identity") != source_identity:
+    st.session_state.pop('workflow_step', None)
     for state_key in (
         "proposal", "proposal_key", "benchmark_result", "benchmark_context",
         "assessment_choice", "benchmark_choice", "poc_choice",
@@ -151,26 +171,95 @@ with chart_cols[1]:
         st.plotly_chart(px.bar(miss, x="missing", y="column", orientation="h", title="Missing values", color_discrete_sequence=["#7990e8"]), width="stretch")
 
 st.divider()
+show_step(2)
 st.header("2 · Add business context and discover opportunities")
 left, right = st.columns(2)
 with left:
     industry = st.selectbox("Industry", ["Manufacturing", "Financial Services", "Retail", "Healthcare", "Other"],
                             index=0 if "Manufacturing" in dataset_name else 2 if "Retail" in dataset_name else 4)
-    default_objective = "Reduce unplanned machine downtime by predicting equipment failure." if "Manufacturing" in dataset_name else "Improve product replenishment by anticipating demand." if "Retail" in dataset_name else ""
-    objective = st.text_area("Business objective", value=default_objective, placeholder="What decision or outcome should improve?")
-    priority = st.select_slider("Business priority (user-provided)", ["Low", "Medium", "High"], value="High")
+    objective = st.text_area("Business objective", value="", placeholder="Describe what you want to achieve: improve decisions, identify unusual records, recover missing data, explain outcomes, or generate test data.")
 with right:
-    default_row = "One machine observation" if "Manufacturing" in dataset_name else "One product-store-day" if "Retail" in dataset_name else ""
-    row_definition = st.text_input("What does each row represent?", value=default_row)
-    timing = st.text_input("When would the prediction be made?", placeholder="e.g. At the start of each week, before scheduling maintenance")
+    data_description = st.text_area("Information about the data", value=SAMPLE_DESCRIPTIONS[dataset_name] if source[0] == "sample" else "", placeholder="Describe the records, column meanings, collection process, time coverage, and any known limitations.")
     target_options = ["Not specified"] + list(df.columns)
-    suggested = profile.target_candidates[0] if profile.target_candidates else "Not specified"
-    selected_target = st.selectbox("Optional target variable", target_options, index=target_options.index(suggested) if suggested in target_options else 0)
-    operational = st.select_slider("Operational importance (user-provided)", ["Low", "Medium", "High"], value="High")
-cost_context = st.text_input("Approximate cost of the problem (optional, user-provided)", placeholder="e.g. Downtime cost is not yet quantified")
+    selected_target = st.selectbox("Optional target variable", target_options, help="Leave unspecified for exploration, outlier detection, missing-data recovery, or synthetic generation.")
 
-context = BusinessContext(industry, objective, row_definition, timing, None if selected_target == "Not specified" else selected_target)
-opportunities = discover_use_cases(df, profile, context)
+context = BusinessContext(industry=industry, objective=objective, data_description=data_description, selected_target=None if selected_target == "Not specified" else selected_target)
+context_identity = (source_identity, industry, objective, data_description, selected_target)
+if st.session_state.get("analysis_context") != context_identity:
+    st.session_state.pop('workflow_step', None)
+    for state_key in ("proposal", "proposal_key", "benchmark_result", "benchmark_context", "assessment_choice", "benchmark_choice", "poc_choice", "refinement_draft", "confirmed_brief"):
+        st.session_state.pop(state_key, None)
+    for state_key in list(st.session_state):
+        if state_key.startswith('brief_edit_'):
+            st.session_state.pop(state_key, None)
+    st.session_state["analysis_context"] = context_identity
+st.caption("Refine objective sends these four inputs and computed column statistics to OpenAI, without raw rows. Review the proposed TabPFN approach before applying it.")
+openai_key = os.getenv('OPENAI_API_KEY', '')
+if not openai_key:
+    st.info('To enable refinement, add OPENAI_API_KEY to the project .env file and restart Streamlit.')
+if st.button('Refine objective', disabled=not openai_key or not objective.strip()):
+    try:
+        with st.spinner('Refining the objective and selecting a TabPFN capability…'):
+            draft = refine_objective(context, profile, api_key=openai_key, model=os.getenv('OPENAI_MODEL') or 'gpt-4.1-mini')
+        st.session_state['refinement_draft'] = draft
+        st.session_state.pop('workflow_step', None)
+        for state_key in list(st.session_state):
+            if state_key.startswith('brief_edit_') or state_key in ('confirmed_brief', 'proposal', 'proposal_key', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice'):
+                st.session_state.pop(state_key, None)
+    except RefinementError as exc:
+        st.error(str(exc))
+
+draft = st.session_state.get('refinement_draft')
+if draft:
+    with st.form('review_objective_brief'):
+        st.subheader('Review the proposed analysis brief')
+        brief_objective = st.text_area('Refined objective', value=draft.objective, key='brief_edit_objective')
+        brief_decision = st.text_area('Business decision', value=draft.business_decision, key='brief_edit_decision')
+        brief_route = st.selectbox('Recommended TabPFN capability', list(ROUTE_LABELS), index=list(ROUTE_LABELS).index(draft.route), format_func=lambda x: ROUTE_LABELS[x], key='brief_edit_route')
+        brief_target = st.selectbox('Outcome for this analysis (if required)', target_options, index=target_options.index(draft.target) if draft.target else 0, key='brief_edit_target')
+        brief_columns = st.multiselect('Relevant columns to review', list(df.columns), default=draft.relevant_columns, key='brief_edit_columns')
+        brief_reason = st.text_area('Why this capability fits', value=draft.rationale, key='brief_edit_reason')
+        brief_deliverable = st.text_area('Expected deliverable', value=draft.deliverable, key='brief_edit_deliverable')
+        brief_criteria = st.text_area('Success criteria (one per line)', value='\n'.join(draft.success_criteria), key='brief_edit_criteria')
+        brief_questions = st.text_area('Open questions (one per line)', value='\n'.join(draft.questions), key='brief_edit_questions')
+        apply_brief = st.form_submit_button('Use this objective and capability', type='primary')
+    if apply_brief:
+        try:
+            confirmed = RefinedObjective(objective=brief_objective, business_decision=brief_decision, route=brief_route,
+                target=None if brief_target == 'Not specified' else brief_target, relevant_columns=brief_columns,
+                rationale=brief_reason, deliverable=brief_deliverable,
+                success_criteria=[s.strip() for s in brief_criteria.splitlines() if s.strip()],
+                questions=[s.strip() for s in brief_questions.splitlines() if s.strip()])
+            route_brief(confirmed, df, profile)
+            st.session_state['confirmed_brief'] = confirmed
+            st.session_state['workflow_step'] = 3
+            for state_key in ('proposal', 'proposal_key', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice'):
+                st.session_state.pop(state_key, None)
+        except RefinementError as exc:
+            st.error(str(exc))
+            st.stop()
+    if st.button('Discard refined objective'):
+        st.session_state.pop('workflow_step', None)
+        for state_key in ('refinement_draft', 'confirmed_brief', 'proposal', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice'):
+            st.session_state.pop(state_key, None)
+        st.rerun()
+    if 'confirmed_brief' not in st.session_state:
+        st.info('Review and apply the brief to continue to assessment and evaluation.')
+        st.stop()
+
+confirmed = st.session_state.get('confirmed_brief')
+if confirmed:
+    routed = route_brief(confirmed, df, profile)
+    if routed is None:
+        st.warning('Clarification is needed before choosing a TabPFN capability.')
+        for question in confirmed.questions:
+            st.write(f'- {question}')
+        st.stop()
+    opportunities = [routed]
+    st.success(f'Confirmed approach: {ROUTE_LABELS[confirmed.route]}')
+else:
+    st.info('Enter your business objective above, then click Refine objective to generate an analysis brief.')
+    st.stop()
 if not opportunities:
     st.warning("No defensible use-case candidate was found from the available context. Add a target or a more specific objective; the engine will not invent one.")
     st.stop()
@@ -183,7 +272,9 @@ for uc in opportunities:
         heading_cols[0].subheader(uc.name)
         heading_cols[1].caption(uc.support.value)
         st.write(uc.problem_statement)
-        st.caption(f"Target: {uc.target or 'Outcome data required'} · Task: {uc.task_type}")
+        target_note = uc.target or ("Not required" if uc.capability != "prediction" and not CAPABILITIES[uc.capability]["requires_target"] else "Needs confirmation")
+        st.caption(f"Target: {target_note} · Analysis: {uc.task_type}")
+        st.caption(execution_note(uc.capability))
         st.write("**Why it appeared**")
         for evidence in uc.evidence:
             st.markdown(f"- {evidence}")
@@ -191,6 +282,7 @@ for uc in opportunities:
             st.caption(f"⚑ {uncertainty}")
 
 st.divider()
+show_step(3)
 st.header("3 · Assess data readiness")
 assessment_choice = st.selectbox("Use case to assess", opportunities, format_func=lambda x: x.name, key="assessment_choice")
 assessment = assessments[assessment_choice.key]
@@ -222,8 +314,9 @@ with st.expander("Questions the data profile cannot answer"):
         st.markdown(f"- {question}")
 
 st.divider()
+continue_to(4, 'Continue to prioritization')
 st.header("4 · Prioritize opportunities")
-ranking = prioritize(opportunities, assessments, priority, operational)
+ranking = prioritize(opportunities, assessments)
 st.info(recommendation(ranking))
 for rank, result in enumerate(ranking, 1):
     with st.container(border=True):
@@ -236,17 +329,28 @@ for rank, result in enumerate(ranking, 1):
         cols[3].write(result.implementation_complexity)
         cols[4].caption("NEXT ACTION")
         cols[4].write("Scope evaluation" if "Sufficient" in result.decision_readiness else "Resolve data gap")
+        st.caption(result.recommendation_reason)
 
 st.divider()
-st.header("5 · Benchmark with TabPFN")
+continue_to(5, 'Continue to evaluation')
+st.header("5 · Evaluate the proposed approach")
 benchmark_case = st.selectbox("Confirmed use case", opportunities, format_func=lambda x: x.name, key="benchmark_choice")
 benchmark_assessment = assessments[benchmark_case.key]
 benchmark_result = None
-if benchmark_assessment.status == ReadinessStatus.BLOCKED or not benchmark_case.target:
+if benchmark_case.capability != "prediction":
+    guide = CAPABILITIES[benchmark_case.capability]
+    st.info(execution_note(benchmark_case.capability))
+    st.write(f"**Evaluation approach:** {guide['design']}")
+    st.write(f"**Baseline:** {guide['baseline']}")
+    st.write(f"**Success measures:** {guide['metrics']}")
+    st.write(f"**Deliverable:** {guide['deliverable']}")
+elif benchmark_assessment.status == ReadinessStatus.BLOCKED or not benchmark_case.target:
     st.error("Benchmarking is blocked until a usable target and sufficient historical labels are available.")
 else:
     leakage_columns = suspected_leakage_columns(df, benchmark_case.target)
     defaults, excluded = recommended_features(df, profile, benchmark_case, leakage_columns)
+    if benchmark_case.suggested_columns:
+        defaults = [c for c in defaults if c in benchmark_case.suggested_columns]
     candidate_features = [str(c) for c in df.columns if str(c) != benchmark_case.target]
     selected_features = st.multiselect(
         "Features to use", candidate_features, default=defaults,
@@ -302,11 +406,12 @@ else:
             st.caption(f"• {note}")
 
 st.divider()
+continue_to(6, 'Continue to POC plan' if benchmark_result else 'Continue to POC plan without benchmark results')
 st.header("6 · Generate a POC plan")
 chosen = st.selectbox("Select an opportunity", opportunities, format_func=lambda x: x.name, key="poc_choice")
 if st.button("Generate POC proposal", type="primary"):
     matching_benchmark = st.session_state.get("benchmark_result") if st.session_state.get("benchmark_context", (None, None))[0:2] == (dataset_name, chosen.key) else None
-    st.session_state["proposal"] = generate_poc_markdown(dataset_name, profile, context, chosen, assessments[chosen.key], cost_context or "Not provided", matching_benchmark)
+    st.session_state["proposal"] = generate_poc_markdown(dataset_name, profile, context, chosen, assessments[chosen.key], benchmark=matching_benchmark)
     st.session_state["proposal_key"] = chosen.key
 proposal = st.session_state.get("proposal")
 if proposal:

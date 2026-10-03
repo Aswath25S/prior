@@ -42,6 +42,7 @@ class BusinessContext:
     row_definition: str = ""
     prediction_timing: str = ""
     selected_target: str | None = None
+    data_description: str = ""
 
 
 @dataclass
@@ -56,6 +57,11 @@ class UseCase:
     evidence: list[str] = field(default_factory=list)
     uncertainties: list[str] = field(default_factory=list)
     forecasting: bool = False
+    capability: str = "prediction"
+    objective_match: bool = False
+    deliverable: str = ""
+    success_criteria: list[str] = field(default_factory=list)
+    suggested_columns: list[str] = field(default_factory=list)
 
 
 @dataclass

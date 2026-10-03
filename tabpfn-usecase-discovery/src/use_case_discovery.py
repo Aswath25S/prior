@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .data_profiler import infer_task_type
+from .capabilities import CAPABILITIES
 from .schemas import BusinessContext, DatasetProfile, SupportLevel, UseCase
 
 
@@ -71,6 +72,7 @@ def discover_use_cases(df: pd.DataFrame, profile: DatasetProfile, context: Busin
     columns = [str(c) for c in df.columns]
     searchable = " ".join(columns).lower()
     objective = context.objective.lower()
+    description = context.data_description.lower()
     industry = context.industry.lower()
     candidates: list[tuple[int, UseCase]] = []
 
@@ -83,6 +85,7 @@ def discover_use_cases(df: pd.DataFrame, profile: DatasetProfile, context: Busin
             business_rationale=context.objective or "The business decision and value should be confirmed with the owner.",
             evidence=["Target explicitly selected by the user."],
             uncertainties=["Confirm that the target is measured after, and all features are available before, prediction time."],
+            objective_match=True,
         )
         candidates.append((8, generic))
 
@@ -91,7 +94,8 @@ def discover_use_cases(df: pd.DataFrame, profile: DatasetProfile, context: Busin
         objective_hits = [term for term in item["objective"] if term in objective]
         target = _find_target(columns, item["targets"])
         industry_hit = industry in item["industries"] if item["industries"] else False
-        score = len(col_hits) + 2 * len(objective_hits) + (3 if target else 0) + (1 if industry_hit else 0)
+        description_hits = [term for term in item["features"] if term in description]
+        score = len(col_hits) + 2 * len(objective_hits) + (3 if target else 0) + (1 if industry_hit else 0) + bool(description_hits)
         if score < 2:
             continue
         if target:
@@ -107,6 +111,8 @@ def discover_use_cases(df: pd.DataFrame, profile: DatasetProfile, context: Busin
             evidence.append("Relevant fields observed: " + ", ".join(f"`{x}`" for x in col_hits[:5]) + ".")
         if objective_hits:
             evidence.append("The user-provided objective contains relevant business concepts.")
+        if description_hits:
+            evidence.append("The user-provided data description references relevant operational concepts; these are not verified facts.")
         uncertainties = ["This is a heuristic candidate, not a claim that the organization has this business problem."]
         if not target:
             uncertainties.append("No defensible historical outcome column was found; outcome data would be required.")
@@ -116,6 +122,27 @@ def discover_use_cases(df: pd.DataFrame, profile: DatasetProfile, context: Busin
             key=item["key"], name=item["name"], problem_statement=item["statement"],
             target=target, task_type=task, support=support, business_rationale=item["rationale"],
             evidence=evidence, uncertainties=uncertainties, forecasting=bool(item.get("forecasting")),
+            objective_match=bool(objective_hits),
+        )))
+
+    for capability, guide in CAPABILITIES.items():
+        intent = any(term in objective for term in guide["terms"])
+        # Describing records as synthetic or incomplete is not itself a request
+        # to generate or repair them. Require an explicit analysis intent.
+        described = any(phrase in description for phrase in ("goal is", "want to", "need to", "used to")) and any(term in description for term in guide["terms"])
+        if not intent and not described:
+            continue
+        target = None
+        if guide["requires_target"]:
+            target = context.selected_target or next((c.target for _, c in candidates if c.target), None)
+        support = SupportLevel.DATA_GAP if guide["requires_target"] and not target else SupportLevel.CLARIFY
+        candidates.append((100 if intent else 10, UseCase(
+            key=capability, name=guide["name"], problem_statement=guide["purpose"],
+            target=target, task_type=capability.replace("_", " "), support=support,
+            business_rationale=f"Proposed contribution to your objective: {context.objective or 'Clarify the intended business decision.'}",
+            evidence=["The business objective requests this type of analysis." if intent else "The data description suggests this analysis; confirm that it serves the business objective."],
+            uncertainties=[guide["risk"], "Experimental TabPFN extension; available here for scoping, with a separate execution integration required."],
+            capability=capability, objective_match=intent,
         )))
 
     # Deduplicate a generic selected-target candidate when a catalog candidate uses the same target.

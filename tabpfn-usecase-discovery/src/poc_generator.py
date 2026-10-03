@@ -1,14 +1,50 @@
 from __future__ import annotations
 
 from .schemas import BenchmarkResult, BusinessContext, DatasetProfile, ReadinessAssessment, UseCase
+from .capabilities import CAPABILITIES
 
 
 def generate_poc_markdown(
     dataset_name: str, profile: DatasetProfile, context: BusinessContext,
     use_case: UseCase, assessment: ReadinessAssessment,
+    cost_context: str = "Not provided", benchmark: BenchmarkResult | None = None,
+) -> str:
+    proposal = _generate_poc_markdown(dataset_name, profile, context, use_case, assessment, cost_context, benchmark)
+    if use_case.deliverable:
+        criteria = '\n'.join(f'- {item}' for item in use_case.success_criteria)
+        questions = '\n'.join(f'- {item}' for item in use_case.uncertainties)
+        proposal += f"""
+## Confirmed objective brief
+
+**Business decision:** {use_case.business_rationale}
+
+**Refined objective:** {use_case.problem_statement}
+
+**Deliverable:** {use_case.deliverable}
+
+**Relevant columns proposed for review:** {', '.join(use_case.suggested_columns) or 'Confirm appropriate columns.'}
+
+**Success criteria to agree:**
+
+{criteria}
+
+**Open questions:**
+
+{questions}
+
+This brief was proposed by OpenAI and confirmed or edited by the user. It is not evidence of measured performance.
+"""
+    return proposal
+
+
+def _generate_poc_markdown(
+    dataset_name: str, profile: DatasetProfile, context: BusinessContext,
+    use_case: UseCase, assessment: ReadinessAssessment,
     cost_context: str = "Not provided",
     benchmark: BenchmarkResult | None = None,
 ) -> str:
+    if use_case.capability != "prediction":
+        return _analysis_proposal(dataset_name, profile, context, use_case, assessment)
     target = f"`{use_case.target}`" if use_case.target else "Not yet available"
     classification = "classification" in use_case.task_type
     if use_case.forecasting:
@@ -52,8 +88,9 @@ These are single-holdout experimental results, not evidence of production perfor
 
 **User-provided objective:** {objective}
 
-**Operational decision:** Confirm what action a stakeholder will take from the prediction.  
-**Approximate cost context (user-provided):** {cost_context or "Not provided"}
+**Proposed business contribution:** {use_case.business_rationale}
+
+**Deliverable:** A validated decision-support workflow for the stated objective, including model outputs, operational review, and a go/no-go decision. Confirm the owner and action before starting.
 
 ## 2. Prediction objective
 
@@ -67,6 +104,8 @@ These are single-holdout experimental results, not evidence of production perfor
 ## 3. Dataset overview
 
 - Dataset: {dataset_name}
+- Industry: {context.industry}
+- User-provided data information: {context.data_description or context.row_definition or "Not provided; confirm population, provenance, and timing."}
 - Shape: {profile.rows:,} rows × {profile.columns} columns
 - Feature coverage: {len(profile.numeric_columns)} numeric, {len(profile.categorical_columns)} categorical, {len(profile.datetime_columns)} date/time
 - Missing cells: {profile.missing_total:,}
@@ -92,6 +131,7 @@ Observed target facts:
 - Confirm performance is sufficiently stable across relevant sites, products, machines, or customer groups.
 - Confirm the prediction arrives early enough and reliably enough to support the intended action.
 - Define a go/no-go review; no savings or ROI are assumed in this proposal.
+- Agree how the output changes an operational decision supporting the stated business objective, and evaluate that workflow with its owner.
 
 ## 6. Key risks
 
@@ -112,4 +152,72 @@ Observed target facts:
 - Who owns the decision and who acts on each prediction?
 - What errors are most costly, and what intervention capacity exists?
 - How were labels created, and can that definition change over time?
+"""
+
+
+def _analysis_proposal(dataset_name, profile, context, use_case, assessment) -> str:
+    guide = CAPABILITIES[use_case.capability]
+    facts = "\n".join(f"- {fact}" for fact in assessment.observed_facts)
+    risks = "\n".join(f"- {risk}" for risk in assessment.risks)
+    questions = "\n".join(f"- {q}" for q in assessment.deployment_questions)
+    return f"""# POC Proposal: {use_case.name}
+
+## 1. Business objective and decision
+
+**User-provided objective:** {context.objective or 'Agree the business objective with the stakeholder.'}
+
+**Industry:** {context.industry}
+
+{guide['purpose']} Confirm with the owner how this output supports the stated objective.
+
+## 2. Proposed deliverable
+
+{guide['deliverable']}
+
+Analysis type: {use_case.task_type}. {f'Explanatory outcome: `{use_case.target}`.' if guide['requires_target'] else 'No single prediction target is required.'}
+
+## 3. Dataset and limitations
+
+Dataset: {dataset_name} — {profile.rows:,} rows × {profile.columns} columns.
+
+**User-provided data information:** {context.data_description or 'Not provided; confirm record meaning, coverage, and provenance.'}
+
+{facts}
+
+## 4. Evaluation design
+
+{guide['design']}
+
+**Baseline:** {guide['baseline']}.
+
+**Metrics:** {guide['metrics']}
+
+Fit all transformations on training data and keep evaluation records separate. Confirm temporal and entity dependencies before splitting.
+
+## 5. Success criteria to agree
+
+{guide['success']} Agree with the business owner how the deliverable improves the stated decision; no ROI or performance thresholds are assumed.
+
+## 6. Risks and readiness
+
+Status: {assessment.status.value}.
+
+{risks}
+
+## 7. POC workflow and execution status
+
+1. Confirm the objective, intended output, data meaning, and operational owner.
+2. Validate coverage, missingness, duplicates, constraints, and relevant features.
+3. Freeze the evaluation protocol and baseline.
+4. Integrate and validate the appropriate experimental TabPFN extension.
+5. Evaluate outputs against the agreed metrics and conduct stakeholder review.
+6. Decide whether to pilot, improve the data, or stop.
+
+**Execution status:** This app supports scoping this capability. Its extension runner is not integrated and no results have been measured. The classification/regression benchmark does not validate this entire POC.
+
+Capability reference: [Official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions).
+
+## 8. Stakeholder questions
+
+{questions}
 """
