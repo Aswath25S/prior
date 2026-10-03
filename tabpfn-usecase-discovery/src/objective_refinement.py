@@ -81,7 +81,7 @@ Routes:
 - synthetic_generation: generate representative artificial records; never guarantee privacy.
 The app evaluates the last four routes through bounded conditional TabPFN client workflows:
 column prediction for imputation, conditional surprise for anomaly ranking, conditional
-sampling for synthetic generation, and permutation/sensitivity checks for interpretation.
+sampling for synthetic generation, and empirical interventional SHAP for interpretation.
 These initial evaluations are not full joint-density extension runs or causal explanations.
 - needs_clarification: vague goals, unsupported capabilities, causal/optimization claims not
 supported by this app, or insufficient context to choose responsibly.

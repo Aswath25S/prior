@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from .schemas import AnalysisResult, BenchmarkResult
@@ -38,16 +39,41 @@ def render_explanations(result: BenchmarkResult):
     if explanations is None or explanations.empty:
         st.info("Enable “Explain the predictions” before running the evaluation to inspect an individual result.")
         return
+    if "SHAP value" not in explanations.columns:
+        st.info("Run the evaluation again with “Explain the predictions” enabled to generate SHAP values.")
+        return
     if explanations is not None and not explanations.empty:
         record = st.selectbox("Inspect an individual result", explanations["Record"].unique(), key="explanation_record")
-        case = explanations[explanations["Record"] == record].sort_values("Change")
+        case = explanations[explanations["Record"] == record].copy()
+        case = case.loc[case["SHAP value"].abs().sort_values(ascending=False).index]
         if result.predictions is not None:
             observed = result.predictions[result.predictions["Record"] == record].iloc[0]
             st.write(f"Observed outcome: **{observed['Observed']}** · Predicted outcome: **{observed['Predicted']}**")
-        unit = "probability" if "classification" in result.plan.task_type else "estimated value"
-        st.write(f"Record `{record}`: original {unit} for **{case.iloc[0]['Explained outcome']}** is **{case.iloc[0]['Original output']:.3f}**.")
-        _chart(px.bar(case, x="Change", y="Field", orientation="h", color="Change", color_continuous_scale="RdBu", title="What changes when a field is replaced by a typical value?"))
-        st.caption("Positive bars raise the result compared with a typical value; negative bars lower it. These are separate sensitivity checks, not additive contributions or proof of cause and effect.")
+        classification = "classification" in result.plan.task_type
+        baseline = float(case.iloc[0]["Base value"])
+        prediction = float(case.iloc[0]["Prediction"])
+        outcome = case.iloc[0]["Explained outcome"]
+        if classification:
+            st.write(f"Probability of **{outcome}**: reference **{baseline:.1%}** → this record **{prediction:.1%}**.")
+        else:
+            st.write(f"Estimated **{outcome}**: reference **{baseline:.3f}** → this record **{prediction:.3f}**.")
+        scale = 100 if classification else 1
+        contributions = case["SHAP value"].to_numpy() * scale
+        labels = [f"{row['Field']} = {str(row['Field value'])[:24]}" for _, row in case.iterrows()]
+        figure = go.Figure(go.Waterfall(
+            orientation="h", measure=["absolute"] + ["relative"] * len(case) + ["total"],
+            y=["Reference prediction", *labels, "This prediction"], x=[baseline * scale, *contributions, 0],
+            text=[f"{baseline * scale:.3f}", *[f"{v:+.3f}" for v in contributions], f"{prediction * scale:.3f}"],
+            textposition="outside", connector=dict(line=dict(color="#8593a8")),
+            increasing=dict(marker=dict(color="#df5367")), decreasing=dict(marker=dict(color="#5271e6")),
+            totals=dict(marker=dict(color="#6b7b94")),
+        ))
+        figure.update_layout(title="SHAP contributions to this prediction", showlegend=False,
+                             xaxis_title="Probability (%) — SHAP changes in percentage points" if classification else "Predicted outcome (original units)",
+                             yaxis=dict(autorange="reversed"))
+        _chart(figure)
+        st.caption("Red contributions raise the prediction; blue contributions lower it. The reference prediction plus all SHAP values equals this record's prediction. SHAP explains model behavior, not cause and effect.")
+        st.caption(f"{case.iloc[0]['Method']} · Reference: {int(case.iloc[0]['Background records'])} sampled learning records.")
         st.download_button("Download prediction explanations", explanations.to_csv(index=False), "prediction-explanations.csv", "text/csv")
 
 

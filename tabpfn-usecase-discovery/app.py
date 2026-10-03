@@ -268,44 +268,35 @@ assessments = {uc.key: assess_readiness(df, profile, uc) for uc in opportunities
 for uc in opportunities:
     with st.container(border=True):
         st.write(uc.problem_statement)
-        details = f"Approach: {ROUTE_LABELS[confirmed.route]}"
+        st.caption(f"Approach: {ROUTE_LABELS[confirmed.route]}")
         if uc.target:
-            details += f" · Proposed outcome: {uc.target}"
+            st.markdown(f"**Proposed outcome:** `{uc.target}`")
+            summary = assessments[uc.key].target_summary
+            if summary:
+                st.write(f"The outcome is missing in {summary.get('missing_rate', 0):.1%} of records and has {summary.get('unique_values', 0):,} observed value(s).")
+                if summary.get("minority_rate") is not None:
+                    st.write(f"The less common outcome appears in {summary['minority_rate']:.1%} of labeled records. The evaluation will focus on finding that outcome, rather than relying on overall accuracy.")
         elif uc.capability == 'prediction' or CAPABILITIES[uc.capability]['requires_target']:
-            details += " · Outcome needs confirmation"
-        st.caption(details)
-        st.caption('An initial evaluation with charts can be run in Step 5.')
+            st.caption("Outcome needs confirmation")
+        else:
+            st.markdown("**No single outcome is required for this analysis.**")
+        fields_to_check = suspected_leakage_columns(df, uc.target)
+        if fields_to_check:
+            st.write("**Fields to check:** " + ", ".join(f"`{column}`" for column in fields_to_check))
+            st.caption("These fields may only be known after the outcome. Confirm their timing in Step 3; they are excluded from the recommended inputs unless approved.")
+        if profile.identifier_columns:
+            st.write("**Identifier-like fields:** " + ", ".join(f"`{column}`" for column in profile.identifier_columns))
+            st.caption("Unique identifiers are excluded by default because they usually name a record rather than describe its condition.")
+        st.caption('An initial evaluation can be run in Step 5.')
 
 st.divider()
 show_step(3)
 st.header("3 · Validate the data with your expertise")
-st.write("The app can inspect values and column names. Your knowledge is needed to confirm what the data means and whether the proposed result could be used in practice.")
+st.write("Confirm what the app cannot tell from the CSV: whether the outcome means what you expect, the inputs are available in time, the history reflects real operations, and someone can act on the result. Your answers guide whether to proceed or resolve a data issue first.")
 assessment_choice = opportunities[0]
 assessment = assessments[assessment_choice.key]
 review_context = (source_identity, assessment_choice.key, assessment_choice.target)
 flagged_columns = suspected_leakage_columns(df, assessment_choice.target)
-
-overview = st.columns(3)
-overview[0].metric("Records", f"{profile.rows:,}")
-overview[1].metric("Fields", profile.columns)
-overview[2].metric("Missing values", f"{profile.missing_total:,}")
-
-with st.container(border=True):
-    if assessment_choice.target:
-        summary = assessment.target_summary
-        st.markdown(f"**Proposed outcome:** `{assessment_choice.target}`")
-        if summary:
-            st.write(f"The outcome is missing in {summary.get('missing_rate', 0):.1%} of records and has {summary.get('unique_values', 0):,} observed value(s).")
-            if summary.get("minority_rate") is not None:
-                st.write(f"The less common outcome appears in {summary['minority_rate']:.1%} of labeled records. The evaluation will focus on finding that outcome, rather than relying on overall accuracy.")
-    else:
-        st.markdown("**No single outcome is required for this analysis.**")
-    if flagged_columns:
-        st.write("**Fields to check:** " + ", ".join(f"`{column}`" for column in flagged_columns))
-        st.caption("Their names or relationship to the outcome suggest they may only be known after the event. They stay excluded unless you confirm otherwise.")
-    if profile.identifier_columns:
-        st.write("**Identifier-like fields:** " + ", ".join(f"`{column}`" for column in profile.identifier_columns))
-        st.caption("Unique identifiers are excluded by default because they usually name a record rather than describe its condition.")
 
 requires_target = assessment_choice.capability in {"prediction", "interpretability"}
 with st.form("expert_data_review"):
@@ -340,7 +331,7 @@ with st.form("expert_data_review"):
         "Is there a person or team that can act on the result?",
         ["Not sure", "Yes", "No"], horizontal=True,
     )
-    submit_review = st.form_submit_button("Confirm data review", type="primary")
+    submit_review = st.form_submit_button("Save answers and continue", type="primary")
 
 if submit_review:
     expert_review = ExpertReview(target_meaning, feature_timing, missing_values, representative_history, actionability, approved_flagged)
@@ -452,8 +443,8 @@ if supervised:
 
     explain = st.checkbox("Explain the predictions", value=len(selected_features) <= 12,
                           disabled=len(selected_features) > 12,
-                          help="Adds individual prediction explanations using extra API requests. Select at most 12 fields.")
-    st.caption("Inspect how each field affects up to five individual results. Explanation checks require additional API usage.")
+                          help="Calculates SHAP contributions for individual predictions using extra API requests. Select at most 12 fields.")
+    st.caption("SHAP explains up to five individual results using eight reference records. Exact contributions are calculated for up to six fields; larger analyses use 16 sampled permutations. This requires additional API usage.")
     if benchmark_case.capability == "interpretability" and not explain:
         st.info("Choose at most 12 fields to evaluate and explain this approach.")
         benchmark_eligible = False
@@ -482,7 +473,7 @@ configured_token = os.getenv("TABPFN_TOKEN", "").strip()
 consent = st.checkbox("I confirm I am permitted to send the selected data to the TabPFN cloud service for this evaluation and its explanation checks.")
 if not configured_token:
     st.info("Evaluation is unavailable until TABPFN_TOKEN is configured in the project's .env file. Restart Streamlit after adding it.")
-expected_context = (dataset_name, benchmark_case.key, tuple(selected_features), runner_case.task_type, explain, generated_rows)
+expected_context = (dataset_name, benchmark_case.key, tuple(selected_features), runner_case.task_type, explain, generated_rows, "shap-v1")
 if st.session_state.get("evaluation_config") != expected_context:
     st.session_state.pop("proposal", None)
     st.session_state.pop("proposal_key", None)

@@ -1,5 +1,6 @@
 import sys
 import types
+import json
 
 import numpy as np
 import pandas as pd
@@ -114,6 +115,9 @@ def test_prediction_artifacts_and_interpretation(kind, fake_client):
     assert len(result.predictions) == result.plan.test_rows
     assert set(result.feature_importance["Field"]) == set(features)
     assert result.case_explanations["Record"].nunique() <= 5
+    for _, explanation in result.case_explanations.groupby("Record"):
+        assert explanation["Base value"].iloc[0] + explanation["SHAP value"].sum() == pytest.approx(explanation["Prediction"].iloc[0])
+        assert explanation["Method"].str.contains("SHAP").all()
     if kind == "classification":
         assert result.probabilities.shape == (result.plan.test_rows, 2)
         assert np.allclose(result.probabilities.sum(axis=1), 1)
@@ -152,11 +156,25 @@ def test_result_views_render_measured_artifacts(kind, fake_client, monkeypatch):
     assert len(app.dataframe) == 1
     if kind in {"classification", "regression", "forecasting"}:
         assert len(app.get("plotly_chart")) == 1
+        chart = json.loads(app.get("plotly_chart")[0].proto.spec)
+        assert chart["data"][0]["type"] == "waterfall"
         assert "Measure to compare" not in [select.label for select in app.selectbox]
         assert "Inspect an individual result" in [select.label for select in app.selectbox]
         assert "Download prediction explanations" in [button.label for button in app.get("download_button")]
     assert "How to interpret this evaluation" in [expander.label for expander in app.expander]
     assert len(app.get("download_button")) >= 1
+
+
+def test_multiclass_shap_explains_each_records_predicted_class(fake_client):
+    rng = np.random.default_rng(11)
+    a, b = rng.normal(size=(2, 240)).round(1)
+    df = pd.DataFrame({"reading": a, "load": b, "outcome": np.where(a < -.5, "low", np.where(a > .5, "high", "normal"))})
+    case = UseCase("multi", "Operating state", "Estimate state", "outcome", "multiclass classification", SupportLevel.SUPPORTED, "Operational review")
+    result = run_tabpfn_benchmark(df, profile_dataset(df), case, ["reading", "load"], explain=True, include_global_importance=False)
+    for record, explanation in result.case_explanations.groupby("Record"):
+        predicted = result.predictions.loc[result.predictions["Record"] == record, "Predicted"].iloc[0]
+        assert explanation["Explained outcome"].iloc[0] == str(predicted)
+        assert explanation["Prediction"].iloc[0] == pytest.approx(result.probabilities.loc[int(record), str(predicted)])
 
 
 def click(app, label):
@@ -182,7 +200,7 @@ def test_step_five_runs_and_exports_results_for_each_route(route, fake_client, m
     app.text_area[0].input("Evaluate the proposed operational analysis").run()
     click(app, "Refine objective")
     click(app, "Use this objective and capability")
-    click(app, "Confirm data review")
+    click(app, "Save answers and continue")
     click(app, "Continue to evaluation")
     next(box for box in app.checkbox if "permitted" in box.label).check().run()
     click(app, "Run TabPFN evaluation")

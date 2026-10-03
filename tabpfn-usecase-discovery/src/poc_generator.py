@@ -222,7 +222,7 @@ Status: {assessment.status.value}.
 5. Evaluate outputs against the agreed metrics and conduct stakeholder review.
 6. Decide whether to pilot, improve the data, or stop.
 
-**Execution status:** Step 5 can run a bounded initial evaluation through the TabPFN API. Only a measured evaluation section in this proposal confirms that a run occurred. Conditional column models support missing-data recovery, unusual-record ranking, and synthetic sampling; they do not use the extensions' full joint-density runner. Interpretation uses permutation importance and individual sensitivity checks rather than SHAP. These initial checks do not validate this entire POC.
+**Execution status:** Step 5 can run a bounded initial evaluation through the TabPFN API. Only a measured evaluation section in this proposal confirms that a run occurred. Conditional column models support missing-data recovery, unusual-record ranking, and synthetic sampling; they do not use the extensions' full joint-density runner. Individual prediction interpretation uses empirical interventional SHAP: exact for up to six fields on a sampled reference background and estimated with sampled permutations for larger feature sets. These initial checks do not validate this entire POC.
 
 Capability reference: [Official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions).
 

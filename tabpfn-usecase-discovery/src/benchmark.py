@@ -294,8 +294,13 @@ def run_tabpfn_benchmark(
     if explain:
         try:
             importance, cases = explain_predictions(model, prepared, include_global_importance=include_global_importance)
+            notes.extend([
+                "Individual explanations use empirical interventional SHAP with eight sampled training-background records. Up to six fields use exact Shapley values for that background; larger sets use 16 sampled permutations.",
+                "The base value plus all field SHAP values reconstructs the explained model output. Classification contributions explain a stated class probability, not a hard class label.",
+                "SHAP depends on the reference sample. Replacing fields independently can create unrealistic combinations when fields are correlated. These contributions are not causal effects.",
+            ])
         except Exception:
-            notes.append("Predictions succeeded, but the extra explanation calls failed. Run again to retry interpretation.")
+            notes.append("Predictions succeeded, but SHAP calculation failed. Check API quota and connection, then rerun with explanations enabled.")
     return BenchmarkResult(
         plan=prepared.plan,
         metrics=metrics,
@@ -305,7 +310,8 @@ def run_tabpfn_benchmark(
 
 
 def explain_predictions(model, prepared: _PreparedBenchmark, *, include_global_importance=True) -> tuple[pd.DataFrame | None, pd.DataFrame]:
-    """Held-out permutation importance and one-field-at-a-time sensitivity, not SHAP."""
+    """Optional global permutation importance and individual interventional SHAP."""
+    from .shap_explanations import interventional_shap
     rng = np.random.default_rng(42)
     count = min(150 if include_global_importance else 5, len(prepared.X_test))
     chosen = np.sort(rng.choice(len(prepared.X_test), count, replace=False))
@@ -330,30 +336,27 @@ def explain_predictions(model, prepared: _PreparedBenchmark, *, include_global_i
             drops.append(base_score - score(model.predict(shuffled)))
         importance.append({"Field": name, "Importance": float(np.mean(drops)), "Variation": float(np.std(drops)), "Records checked": count})
     case_X = X[:min(5, count)].copy()
-    if classification:
-        class_index = int(np.argmin(prepared.y_train.value_counts().reindex(model.classes_).to_numpy()))
-        outcome = str(model.classes_[class_index])
-        get_output = lambda values: np.asarray(model.predict_proba(values))[:, class_index]
-    else:
-        outcome = "numeric outcome"
-        get_output = lambda values: np.asarray(model.predict(values))
-    original = get_output(case_X)
-    replacements = []
-    for j in range(case_X.shape[1]):
-        values = prepared.X_train[:, j]
-        if j < len(numeric):
-            replacements.append(float(np.median(values)))
+    background_count = min(8, len(prepared.X_train))
+    background = prepared.X_train[rng.choice(len(prepared.X_train), background_count, replace=False)]
+    explained = []
+    predicted_classes = np.asarray(model.predict(case_X)) if classification else None
+    for i, row in enumerate(case_X):
+        if classification:
+            # Explain rare-event probability for binary problems, predicted class for multiclass.
+            label = prepared.y_train.value_counts().idxmin() if len(model.classes_) == 2 else predicted_classes[i]
+            class_index = int(np.flatnonzero(np.asarray(model.classes_) == label)[0])
+            outcome = str(label)
+            get_output = lambda values: np.asarray(model.predict_proba(values))[:, class_index]
         else:
-            unique, counts = np.unique(values, return_counts=True)
-            replacements.append(float(unique[np.argmax(counts)]))
-    sensitivity = []
-    for j, name in enumerate(ordered):
-        changed = case_X.copy()
-        changed[:, j] = replacements[j]
-        without = get_output(changed)
-        for i in range(len(case_X)):
-            sensitivity.append({"Record": str(prepared.y_test.index[chosen[i]]), "Field": name,
-                                "Change": float(original[i] - without[i]), "Original output": float(original[i]),
-                                "Reference output": float(without[i]), "Explained outcome": outcome})
+            outcome = prepared.plan.target
+            get_output = lambda values: np.asarray(model.predict(values))
+        values, reference, prediction, method = interventional_shap(get_output, background, row, seed=42 + i)
+        source = prepared.test_rows.iloc[chosen[i]]
+        for j, name in enumerate(ordered):
+            explained.append({"Record": str(prepared.y_test.index[chosen[i]]), "Field": name,
+                              "Field value": source[name], "SHAP value": float(values[j]),
+                              "Base value": reference, "Prediction": prediction,
+                              "Explained outcome": outcome, "Method": method,
+                              "Background records": background_count})
     importance_frame = pd.DataFrame(importance).sort_values("Importance", ascending=False) if importance else None
-    return importance_frame, pd.DataFrame(sensitivity)
+    return importance_frame, pd.DataFrame(explained)
