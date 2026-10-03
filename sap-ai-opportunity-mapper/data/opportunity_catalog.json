@@ -1,0 +1,649 @@
+[
+  {
+    "id": "supplier_delay",
+    "name": "Supplier delivery-delay risk",
+    "function": "Procurement",
+    "industries": [
+      "Industrial manufacturing",
+      "Retail"
+    ],
+    "pain": "Supplier delivery delays",
+    "priority": "supplier reliability",
+    "problem": "Late deliveries disrupt production and increase expediting costs.",
+    "action": "Escalate at-risk purchase orders and arrange contingencies.",
+    "target": "Delivery after agreed date",
+    "prediction_type": "classification",
+    "required_data": [
+      "Purchase orders",
+      "Actual receipt dates",
+      "Supplier history"
+    ],
+    "features": [
+      "Supplier",
+      "Category",
+      "Order size",
+      "Lead time",
+      "Region"
+    ],
+    "timing": "At purchase-order approval, before promised receipt",
+    "sap_context": "S/4HANA, Ariba",
+    "stakeholder": "VP Procurement",
+    "baseline": "Current supplier rules",
+    "metrics": "PR-AUC; precision at alert budget; materially late-order recall",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 80000,
+      "rate": 0.18,
+      "unit_cost": 900,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "supplier_performance",
+    "name": "Supplier performance deterioration",
+    "function": "Procurement",
+    "industries": [
+      "Industrial manufacturing",
+      "Retail"
+    ],
+    "pain": "Supplier delivery delays",
+    "priority": "supplier performance",
+    "problem": "Supplier performance declines before procurement can intervene.",
+    "action": "Prioritize supplier reviews.",
+    "target": "Supplier breaches service threshold in next 30 days",
+    "prediction_type": "classification",
+    "required_data": [
+      "Supplier scorecards",
+      "Receipt history",
+      "Contracts"
+    ],
+    "features": [
+      "Historic service levels",
+      "Category",
+      "Order volume"
+    ],
+    "timing": "Monthly review before next 30-day window",
+    "sap_context": "Ariba, S/4HANA",
+    "stakeholder": "Supplier Management Director",
+    "baseline": "Supplier scorecards",
+    "metrics": "PR-AUC; precision at review capacity",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 1200,
+      "rate": 0.2,
+      "unit_cost": 18000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "inventory",
+    "name": "Excess inventory risk",
+    "function": "Supply chain",
+    "industries": [
+      "Industrial manufacturing",
+      "Retail"
+    ],
+    "pain": "Excess inventory",
+    "priority": "inventory carrying costs",
+    "problem": "Excess stock ties up working capital and incurs carrying costs.",
+    "action": "Review replenishment and rebalance stock.",
+    "target": "SKU-location excess stock next month",
+    "prediction_type": "classification",
+    "required_data": [
+      "Inventory snapshots",
+      "Orders",
+      "Stock movements"
+    ],
+    "features": [
+      "Stock cover",
+      "Lead time",
+      "Historic demand"
+    ],
+    "timing": "Before monthly replenishment decision",
+    "sap_context": "S/4HANA, IBP",
+    "stakeholder": "Inventory Planning Director",
+    "baseline": "Inventory policy rules",
+    "metrics": "PR-AUC; precision at review capacity; carrying cost",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 12000,
+      "rate": 0.22,
+      "unit_cost": 6000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "equipment",
+    "name": "Equipment failure risk",
+    "function": "Operations",
+    "industries": [
+      "Industrial manufacturing"
+    ],
+    "pain": "Unplanned equipment downtime",
+    "priority": "equipment uptime",
+    "problem": "Unexpected failures interrupt production.",
+    "action": "Schedule inspection or preventive maintenance.",
+    "target": "Failure within next 14 days",
+    "prediction_type": "classification",
+    "required_data": [
+      "Asset records",
+      "Failure events",
+      "Maintenance logs"
+    ],
+    "features": [
+      "Asset age",
+      "Usage",
+      "Prior repairs",
+      "Aggregated sensor readings"
+    ],
+    "timing": "Before maintenance scheduling, with a 14-day horizon",
+    "sap_context": "S/4HANA maintenance workflows",
+    "stakeholder": "Plant Operations Director",
+    "baseline": "Preventive maintenance schedules",
+    "metrics": "PR-AUC; recall; false alerts per asset-week",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 600,
+      "rate": 0.15,
+      "unit_cost": 80000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "quality",
+    "name": "Quality-defect risk",
+    "function": "Operations",
+    "industries": [
+      "Industrial manufacturing"
+    ],
+    "pain": "Quality defects",
+    "priority": "operational costs",
+    "problem": "Rejected batches cause scrap and rework.",
+    "action": "Prioritize inspection before batch release.",
+    "target": "Batch fails quality inspection",
+    "prediction_type": "classification",
+    "required_data": [
+      "Batch history",
+      "Inspection outcomes",
+      "Production conditions"
+    ],
+    "features": [
+      "Material",
+      "Machine",
+      "Shift",
+      "Process settings"
+    ],
+    "timing": "Before batch release; exclude final inspection results",
+    "sap_context": "S/4HANA quality workflows",
+    "stakeholder": "Quality Director",
+    "baseline": "Inspection sampling rules",
+    "metrics": "PR-AUC; recall at fixed inspection capacity",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 20000,
+      "rate": 0.04,
+      "unit_cost": 7000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "stockout",
+    "name": "Stockout risk",
+    "function": "Supply chain",
+    "industries": [
+      "Retail",
+      "Industrial manufacturing"
+    ],
+    "pain": "Stockouts",
+    "priority": "reduce stockouts",
+    "problem": "Unavailable stock causes lost contribution margin.",
+    "action": "Prioritize replenishment for at-risk SKU locations.",
+    "target": "Stockout within next 7 days",
+    "prediction_type": "classification",
+    "required_data": [
+      "Stock snapshots",
+      "Stockout events",
+      "Sales",
+      "Replenishment"
+    ],
+    "features": [
+      "Stock level",
+      "Recent sales",
+      "Lead time",
+      "Promotion"
+    ],
+    "timing": "Before replenishment, with a 7-day horizon",
+    "sap_context": "S/4HANA, IBP",
+    "stakeholder": "Supply Chain Director",
+    "baseline": "Safety stock policy",
+    "metrics": "PR-AUC; missed-event recall; alert burden",
+    "financial_model": "stockout",
+    "default_financial": {
+      "volume": 18000,
+      "rate": 1,
+      "unit_cost": 450,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "demand",
+    "name": "Demand prediction",
+    "function": "Supply chain",
+    "industries": [
+      "Retail",
+      "Industrial manufacturing"
+    ],
+    "pain": "Demand volatility",
+    "priority": "demand planning",
+    "problem": "Demand errors cause inventory imbalances.",
+    "action": "Adjust replenishment using an evaluated demand estimate.",
+    "target": "Next-week SKU-location demand",
+    "prediction_type": "regression",
+    "required_data": [
+      "Dated sales",
+      "Promotions",
+      "Availability"
+    ],
+    "features": [
+      "Lagged sales",
+      "Calendar",
+      "Price",
+      "Promotion"
+    ],
+    "timing": "Before planning freeze; explicit one-week horizon",
+    "sap_context": "IBP, S/4HANA",
+    "stakeholder": "Demand Planning Director",
+    "baseline": "SAP IBP forecasting if used; seasonal naive forecast",
+    "metrics": "MAE; WAPE; bias by segment",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 52000,
+      "rate": 0.15,
+      "unit_cost": 900,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes",
+      "Sales censored by stockouts; lag features and time splits must be benchmarked"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "promotion",
+    "name": "Promotion response prediction",
+    "function": "Sales / customer management",
+    "industries": [
+      "Retail"
+    ],
+    "pain": "Promotions with unpredictable results",
+    "priority": "demand planning",
+    "problem": "Promotion outcomes vary and erode margin.",
+    "action": "Prioritize promotion review; do not infer causal uplift.",
+    "target": "Units sold during planned promotion",
+    "prediction_type": "regression",
+    "required_data": [
+      "Past promotions",
+      "Sales",
+      "Prices",
+      "Stock availability"
+    ],
+    "features": [
+      "Discount",
+      "Season",
+      "Product",
+      "Historic sales"
+    ],
+    "timing": "Before promotion approval",
+    "sap_context": "Sales Cloud, S/4HANA",
+    "stakeholder": "Commercial Director",
+    "baseline": "Current promotion forecasts",
+    "metrics": "MAE; margin scenario; subgroup bias",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 2000,
+      "rate": 0.3,
+      "unit_cost": 15000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "payment",
+    "name": "Payment-delay risk",
+    "function": "Finance",
+    "industries": [
+      "Industrial manufacturing",
+      "Retail",
+      "Financial services"
+    ],
+    "pain": "Customer payment delays",
+    "priority": "collection efficiency",
+    "problem": "Late payments increase carrying costs and cash uncertainty.",
+    "action": "Prioritize collections before due date.",
+    "target": "Invoice paid after due date",
+    "prediction_type": "classification",
+    "required_data": [
+      "Invoices",
+      "Due dates",
+      "Settlement dates",
+      "Payment history"
+    ],
+    "features": [
+      "Amount",
+      "Terms",
+      "Segment",
+      "Prior late payments"
+    ],
+    "timing": "At invoice issuance before due date",
+    "sap_context": "S/4HANA accounts receivable",
+    "stakeholder": "Head of Collections",
+    "baseline": "Collections rules and existing receivables scoring",
+    "metrics": "PR-AUC; precision at collector capacity; days late",
+    "financial_model": "payment",
+    "default_financial": {
+      "volume": 60000,
+      "rate": 0.2,
+      "unit_cost": 8000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "cash",
+    "name": "Cash-collection forecasting",
+    "function": "Finance",
+    "industries": [
+      "Financial services",
+      "Industrial manufacturing",
+      "Retail"
+    ],
+    "pain": "Financial forecasting",
+    "priority": "financial visibility",
+    "problem": "Uncertain collections make treasury planning harder.",
+    "action": "Review expected collections and liquidity buffers.",
+    "target": "Amount collected over next 30 days",
+    "prediction_type": "regression",
+    "required_data": [
+      "Invoices",
+      "Settlements",
+      "Dated balances"
+    ],
+    "features": [
+      "Due balances",
+      "Payment history",
+      "Calendar"
+    ],
+    "timing": "At monthly forecast cutoff before 30-day horizon",
+    "sap_context": "S/4HANA finance",
+    "stakeholder": "Treasury Director",
+    "baseline": "Treasury forecast and seasonal baseline",
+    "metrics": "MAE; forecast bias; liquidity planning error",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 12,
+      "rate": 0.5,
+      "unit_cost": 180000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "churn",
+    "name": "Customer churn risk",
+    "function": "Sales / customer management",
+    "industries": [
+      "Financial services",
+      "Retail"
+    ],
+    "pain": "Customer churn",
+    "priority": "customer attrition",
+    "problem": "Preventable attrition reduces contribution margin.",
+    "action": "Prioritize eligible customers for retention outreach.",
+    "target": "Customer churn in next 90 days",
+    "prediction_type": "classification",
+    "required_data": [
+      "Customer history",
+      "Churn events",
+      "Interactions"
+    ],
+    "features": [
+      "Tenure",
+      "Activity",
+      "Service history",
+      "Segment"
+    ],
+    "timing": "Before retention contact with a 90-day horizon",
+    "sap_context": "Sales Cloud; ERP customer records where applicable",
+    "stakeholder": "Customer Success Director",
+    "baseline": "Existing retention scoring",
+    "metrics": "PR-AUC; precision at contact budget; retention experiment",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 100000,
+      "rate": 0.08,
+      "unit_cost": 1200,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  },
+  {
+    "id": "risk",
+    "name": "Operational incident risk",
+    "function": "Operations",
+    "industries": [
+      "Financial services"
+    ],
+    "pain": "Operational risk",
+    "priority": "operational costs",
+    "problem": "Operational incidents create remediation costs.",
+    "action": "Prioritize human review of risky cases.",
+    "target": "Recorded incident within next 30 days",
+    "prediction_type": "classification",
+    "required_data": [
+      "Incident register",
+      "Process history",
+      "Case outcomes"
+    ],
+    "features": [
+      "Case type",
+      "Queue age",
+      "Prior incidents"
+    ],
+    "timing": "Before case review with a 30-day horizon",
+    "sap_context": "BTP workflows if configured; source systems need validation",
+    "stakeholder": "Chief Operating Officer",
+    "baseline": "Operational risk rules",
+    "metrics": "PR-AUC; recall; review burden; subgroup errors",
+    "financial_model": "event",
+    "default_financial": {
+      "volume": 20000,
+      "rate": 0.02,
+      "unit_cost": 25000,
+      "addressable": 0.35,
+      "adoption": 0.65,
+      "effectiveness": 0.45,
+      "days_late": 30,
+      "days_reduced": 10,
+      "cost_of_capital": 0.08
+    },
+    "data_risks": [
+      "Point-in-time leakage and post-outcome features",
+      "Temporal drift and correlated entities",
+      "Incomplete or selectively recorded outcomes"
+    ],
+    "deployment_questions": [
+      "Can authorized teams access these records?",
+      "Who acts on alerts and what is the intervention capacity?",
+      "What privacy, residency and audit controls apply?"
+    ],
+    "overlap": "Existing SAP functionality and current rules or ML must be reviewed; no superiority assumed."
+  }
+]
