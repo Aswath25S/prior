@@ -38,6 +38,8 @@ class _PreparedBenchmark:
     X_test: np.ndarray
     y_train: pd.Series
     y_test: pd.Series
+    test_rows: pd.DataFrame
+    preprocessor: ColumnTransformer
 
 
 def recommended_features(
@@ -69,12 +71,12 @@ def _build_preprocessor(frame: pd.DataFrame) -> ColumnTransformer:
     transformers = []
     if numeric:
         transformers.append(("numeric", Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
+            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
             ("scale", StandardScaler()),
         ]), numeric))
     if categorical:
         transformers.append(("categorical", Pipeline([
-            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("imputer", SimpleImputer(strategy="most_frequent", keep_empty_features=True)),
             ("encode", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)),
         ]), categorical))
     if not transformers:
@@ -91,6 +93,8 @@ def prepare_benchmark(
         raise BenchmarkError("A confirmed target is required before benchmarking.")
     if use_case.task_type not in {"binary classification", "multiclass classification", "regression"}:
         raise BenchmarkError(f"Unsupported task type: {use_case.task_type}.")
+    if use_case.task_type == "regression" and not pd.api.types.is_numeric_dtype(df[target]):
+        raise BenchmarkError("A numeric outcome is needed to estimate a value. Choose category/event analysis for this outcome.")
     features = list(dict.fromkeys(feature_columns))
     if target in features:
         raise BenchmarkError("The target cannot be included as a feature.")
@@ -111,6 +115,7 @@ def prepare_benchmark(
     group_column = group_candidates[0] if group_candidates else None
     required_columns = list(dict.fromkeys(features + [target] + ([group_column] if group_column else [])))
     labeled = df.loc[df[target].notna(), required_columns].copy()
+    original_rows = labeled.copy()
     # Preserve time order as a numeric feature instead of treating each date as an unrelated category.
     for date_column in [c for c in profile.datetime_columns if c in features]:
         parsed = pd.to_datetime(labeled[date_column], errors="coerce")
@@ -124,14 +129,18 @@ def prepare_benchmark(
         if not date_columns:
             raise BenchmarkError("Forecasting requires a recognized date column for chronological validation.")
         date_column = date_columns[0]
-        dates = pd.to_datetime(labeled[date_column], errors="coerce")
+        dates = pd.to_datetime(original_rows.loc[labeled.index, date_column], errors="coerce")
         if dates.isna().any():
             raise BenchmarkError(f"`{date_column}` contains dates that could not be parsed.")
         order = np.argsort(dates.to_numpy(), kind="stable")
         labeled = labeled.iloc[order]
-        cut = int(len(labeled) * (1 - test_size))
-        train = labeled.iloc[:cut]
-        test = labeled.iloc[cut:]
+        # Keep all records from a date together: a panel must not cross the time cutoff.
+        unique_dates = np.sort(dates.unique())
+        if len(unique_dates) < 2:
+            raise BenchmarkError("Forecasting needs at least two distinct dates.")
+        cutoff = unique_dates[max(1, min(len(unique_dates) - 1, int(len(unique_dates) * (1 - test_size))))]
+        train = labeled.loc[dates.loc[labeled.index] < cutoff]
+        test = labeled.loc[dates.loc[labeled.index] >= cutoff]
         split_strategy = f"Chronological 80/20 holdout ordered by `{date_column}`"
     elif group_column:
         splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -160,7 +169,7 @@ def prepare_benchmark(
         excluded_columns={}, split_strategy=split_strategy,
         train_rows=len(train), test_rows=len(test),
     )
-    return _PreparedBenchmark(plan, X_train, X_test, train[target], test[target])
+    return _PreparedBenchmark(plan, X_train, X_test, train[target], test[target], original_rows.loc[test.index], preprocessor)
 
 
 def _classification_metrics(y_true: pd.Series, predictions: np.ndarray, probabilities: np.ndarray | None) -> dict[str, float]:
@@ -217,7 +226,8 @@ def _fit_baselines(prepared: _PreparedBenchmark) -> dict[str, dict[str, float]]:
 
 def run_tabpfn_benchmark(
     df: pd.DataFrame, profile: DatasetProfile, use_case: UseCase,
-    feature_columns: list[str], access_token: str | None = None,
+    feature_columns: list[str], access_token: str | None = None, *, explain: bool = False,
+    include_global_importance: bool = True,
 ) -> BenchmarkResult:
     """Run real cloud inference. Import is lazy so discovery works without this optional dependency."""
     prepared = prepare_benchmark(df, profile, use_case, feature_columns)
@@ -229,7 +239,11 @@ def run_tabpfn_benchmark(
     if access_token:
         tabpfn_client.set_access_token(access_token)
 
-    metrics = _fit_baselines(prepared)
+    try:
+        metrics = _fit_baselines(prepared)
+    except Exception:
+        raise BenchmarkError("The baseline evaluation could not run. Check the selected fields and outcome values.") from None
+    probabilities = None
     try:
         if "classification" in use_case.task_type:
             model = TabPFNClassifier()
@@ -242,15 +256,104 @@ def run_tabpfn_benchmark(
             model.fit(prepared.X_train, prepared.y_train)
             predictions = model.predict(prepared.X_test)
             metrics["TabPFN"] = _regression_metrics(prepared.y_test, predictions)
-    except Exception as exc:
-        raise BenchmarkError(f"TabPFN benchmark failed: {exc}") from exc
+    except Exception:
+        raise BenchmarkError("TabPFN evaluation failed. Check the token, access, quota, connection, and field types, then retry.") from None
 
+    prediction_rows = pd.DataFrame({"Record": prepared.y_test.index.astype(str),
+                                    "Observed": np.asarray(prepared.y_test), "Predicted": predictions})
+    for column in feature_columns:
+        prediction_rows[f"Input: {column}"] = prepared.test_rows[column].to_numpy()
+    for column in profile.identifier_columns:
+        prediction_rows[f"Identifier: {column}"] = df.loc[prepared.y_test.index, column].to_numpy()
+    if use_case.forecasting:
+        date_column = next(c for c in profile.datetime_columns if c in prepared.test_rows)
+        prediction_rows["Date"] = pd.to_datetime(prepared.test_rows[date_column]).to_numpy()
+        series_fields = [c for c in profile.identifier_columns if c in prepared.test_rows and c != date_column]
+        if series_fields:
+            prediction_rows["Series"] = prepared.test_rows[series_fields].astype(str).agg(" · ".join, axis=1).to_numpy()
+    probability_rows = None
+    if probabilities is not None:
+        probability_rows = pd.DataFrame(probabilities, columns=[str(c) for c in model.classes_], index=prepared.y_test.index)
+    importance, cases = None, None
+    notes = [
+        "Metrics are measured on one frozen holdout and are not proof of production performance.",
+        "All models used the same locally preprocessed features and holdout rows.",
+        "TabPFN inference was performed through the cloud client.",
+    ]
+    if probabilities is None:
+        try:
+            quantiles = np.asarray(model.predict(prepared.X_test, output_type="quantiles", quantiles=[.1, .9]))
+            if quantiles.shape != (2, len(prediction_rows)) or not np.isfinite(quantiles).all():
+                raise ValueError("Unexpected prediction intervals")
+            prediction_rows["Lower estimate"] = np.minimum(quantiles[0], quantiles[1])
+            prediction_rows["Upper estimate"] = np.maximum(quantiles[0], quantiles[1])
+            coverage = ((prediction_rows["Observed"] >= prediction_rows["Lower estimate"]) & (prediction_rows["Observed"] <= prediction_rows["Upper estimate"])).mean()
+            notes.append(f"The model's 80% prediction range covered {coverage:.1%} of observed holdout values. This is measured coverage, not a guarantee for future records.")
+        except Exception:
+            notes.append("Point estimates succeeded, but prediction ranges were unavailable for this run.")
+    if explain:
+        try:
+            importance, cases = explain_predictions(model, prepared, include_global_importance=include_global_importance)
+        except Exception:
+            notes.append("Predictions succeeded, but the extra explanation calls failed. Run again to retry interpretation.")
     return BenchmarkResult(
         plan=prepared.plan,
         metrics=metrics,
-        notes=[
-            "Metrics are measured on one frozen holdout and are not proof of production performance.",
-            "All models used the same locally preprocessed features and holdout rows.",
-            "TabPFN inference was performed through the cloud client.",
-        ],
+        notes=notes, predictions=prediction_rows, probabilities=probability_rows,
+        feature_importance=importance, case_explanations=cases,
     )
+
+
+def explain_predictions(model, prepared: _PreparedBenchmark, *, include_global_importance=True) -> tuple[pd.DataFrame | None, pd.DataFrame]:
+    """Held-out permutation importance and one-field-at-a-time sensitivity, not SHAP."""
+    rng = np.random.default_rng(42)
+    count = min(150 if include_global_importance else 5, len(prepared.X_test))
+    chosen = np.sort(rng.choice(len(prepared.X_test), count, replace=False))
+    X = prepared.X_test[chosen].copy()
+    y = np.asarray(prepared.y_test)[chosen]
+    classification = "classification" in prepared.plan.task_type
+    score = (lambda pred: balanced_accuracy_score(y, pred)) if classification else (lambda pred: -mean_absolute_error(y, pred))
+    base_score = score(model.predict(X)) if include_global_importance else None
+    # Numeric and categorical preprocessing each preserve one dimension per field.
+    numeric = list(prepared.preprocessor.transformers_[0][2]) if prepared.preprocessor.transformers_[0][0] == "numeric" else []
+    ordered = numeric + [c for c in prepared.plan.feature_columns if c not in numeric]
+    if len(ordered) != X.shape[1]:
+        raise BenchmarkError("Cannot map the explanation back to the original fields.")
+    if len(ordered) > 12:
+        raise BenchmarkError("Select at most 12 fields to run this bounded explanation.")
+    importance = []
+    for j, name in enumerate(ordered if include_global_importance else []):
+        drops = []
+        for _ in range(2):
+            shuffled = X.copy()
+            shuffled[:, j] = rng.permutation(shuffled[:, j])
+            drops.append(base_score - score(model.predict(shuffled)))
+        importance.append({"Field": name, "Importance": float(np.mean(drops)), "Variation": float(np.std(drops)), "Records checked": count})
+    case_X = X[:min(5, count)].copy()
+    if classification:
+        class_index = int(np.argmin(prepared.y_train.value_counts().reindex(model.classes_).to_numpy()))
+        outcome = str(model.classes_[class_index])
+        get_output = lambda values: np.asarray(model.predict_proba(values))[:, class_index]
+    else:
+        outcome = "numeric outcome"
+        get_output = lambda values: np.asarray(model.predict(values))
+    original = get_output(case_X)
+    replacements = []
+    for j in range(case_X.shape[1]):
+        values = prepared.X_train[:, j]
+        if j < len(numeric):
+            replacements.append(float(np.median(values)))
+        else:
+            unique, counts = np.unique(values, return_counts=True)
+            replacements.append(float(unique[np.argmax(counts)]))
+    sensitivity = []
+    for j, name in enumerate(ordered):
+        changed = case_X.copy()
+        changed[:, j] = replacements[j]
+        without = get_output(changed)
+        for i in range(len(case_X)):
+            sensitivity.append({"Record": str(prepared.y_test.index[chosen[i]]), "Field": name,
+                                "Change": float(original[i] - without[i]), "Original output": float(original[i]),
+                                "Reference output": float(without[i]), "Explained outcome": outcome})
+    importance_frame = pd.DataFrame(importance).sort_values("Importance", ascending=False) if importance else None
+    return importance_frame, pd.DataFrame(sensitivity)

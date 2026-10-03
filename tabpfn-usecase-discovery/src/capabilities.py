@@ -1,7 +1,7 @@
-"""Explicit scoping guides for capabilities in the experimental TabPFN extensions.
+"""Scoping guides for capabilities with bounded client-based evaluations.
 
 Source: https://github.com/PriorLabs/tabpfn-extensions
-These guides do not imply that extension inference has run in this application.
+These guides describe the complete POC, beyond the app's initial evaluation.
 """
 
 CAPABILITIES = {
@@ -59,4 +59,4 @@ CAPABILITIES = {
 def execution_note(capability: str) -> str:
     if capability == "prediction":
         return "Prediction benchmark available in this app."
-    return "POC scoping available. Execution requires an experimental TabPFN extension; this app has not integrated that runner."
+    return "Initial client-based evaluation available in Step 5; confirm the method and its limitations before treating it as a full POC."

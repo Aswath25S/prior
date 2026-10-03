@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -10,14 +11,17 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from src.benchmark import BenchmarkError, prepare_benchmark, recommended_features, run_tabpfn_benchmark
-from src.capabilities import CAPABILITIES, execution_note
+from src.analysis import analysis_columns, run_tabpfn_analysis
+from src.result_views import render_analysis, render_benchmark
+from src.capabilities import CAPABILITIES
+from src.expert_review import evaluate_expert_review
 from src.objective_refinement import RefinedObjective, RefinementError, ROUTE_LABELS, refine_objective, route_brief
 from src.data_loader import DataValidationError, load_csv
 from src.data_profiler import profile_dataset
 from src.poc_generator import generate_poc_markdown
 from src.prioritization import prioritize, recommendation
 from src.readiness import assess_readiness, suspected_leakage_columns
-from src.schemas import BusinessContext, ReadinessStatus, SupportLevel
+from src.schemas import BusinessContext, ExpertReview, ReadinessAssessment, ReadinessStatus, SupportLevel
 
 
 ROOT = Path(__file__).resolve().parent
@@ -75,7 +79,7 @@ progress = st.empty()
 
 
 def show_step(step: int) -> None:
-    labels = ['Dataset', 'Discover', 'Assess', 'Prioritize', 'Evaluate', 'POC Plan']
+    labels = ['Dataset', 'Objective', 'Review data', 'Recommendation', 'Evaluate', 'POC plan']
     badges = ''.join(f"<span class='step{' active' if i == step else ''}'>{i} {label}</span>" for i, label in enumerate(labels, 1))
     progress.markdown(f"<div class='steps'>{badges}</div>", unsafe_allow_html=True)
 
@@ -94,7 +98,7 @@ st.write("")
 
 with st.sidebar:
     st.header("About this V1")
-    st.caption("Profiling runs locally. Refine objective sends your context and computed schema summary to OpenAI. The TabPFN benchmark sends selected data only when you start it.")
+    st.caption("Profiling runs locally. Refine objective sends your context and computed schema summary to OpenAI. Evaluations send selected data to TabPFN only when you start them.")
     st.caption("Discovery can use local rules or a confirmed AI brief. Results do not establish ROI or production readiness.")
 
 st.header("1 · Choose a dataset")
@@ -123,7 +127,7 @@ if st.session_state.get("active_source_identity") != source_identity:
     st.session_state.pop('workflow_step', None)
     for state_key in (
         "proposal", "proposal_key", "benchmark_result", "benchmark_context",
-        "assessment_choice", "benchmark_choice", "poc_choice",
+        "assessment_choice", "benchmark_choice", "poc_choice", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields",
     ):
         st.session_state.pop(state_key, None)
     st.session_state["active_source_identity"] = source_identity
@@ -187,7 +191,7 @@ context = BusinessContext(industry=industry, objective=objective, data_descripti
 context_identity = (source_identity, industry, objective, data_description, selected_target)
 if st.session_state.get("analysis_context") != context_identity:
     st.session_state.pop('workflow_step', None)
-    for state_key in ("proposal", "proposal_key", "benchmark_result", "benchmark_context", "assessment_choice", "benchmark_choice", "poc_choice", "refinement_draft", "confirmed_brief"):
+    for state_key in ("proposal", "proposal_key", "benchmark_result", "benchmark_context", "assessment_choice", "benchmark_choice", "poc_choice", "refinement_draft", "confirmed_brief", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields"):
         st.session_state.pop(state_key, None)
     for state_key in list(st.session_state):
         if state_key.startswith('brief_edit_'):
@@ -214,33 +218,29 @@ if draft:
     with st.form('review_objective_brief'):
         st.subheader('Review the proposed analysis brief')
         brief_objective = st.text_area('Refined objective', value=draft.objective, key='brief_edit_objective')
-        brief_decision = st.text_area('Business decision', value=draft.business_decision, key='brief_edit_decision')
         brief_route = st.selectbox('Recommended TabPFN capability', list(ROUTE_LABELS), index=list(ROUTE_LABELS).index(draft.route), format_func=lambda x: ROUTE_LABELS[x], key='brief_edit_route')
         brief_target = st.selectbox('Outcome for this analysis (if required)', target_options, index=target_options.index(draft.target) if draft.target else 0, key='brief_edit_target')
         brief_columns = st.multiselect('Relevant columns to review', list(df.columns), default=draft.relevant_columns, key='brief_edit_columns')
         brief_reason = st.text_area('Why this capability fits', value=draft.rationale, key='brief_edit_reason')
         brief_deliverable = st.text_area('Expected deliverable', value=draft.deliverable, key='brief_edit_deliverable')
-        brief_criteria = st.text_area('Success criteria (one per line)', value='\n'.join(draft.success_criteria), key='brief_edit_criteria')
-        brief_questions = st.text_area('Open questions (one per line)', value='\n'.join(draft.questions), key='brief_edit_questions')
         apply_brief = st.form_submit_button('Use this objective and capability', type='primary')
     if apply_brief:
         try:
-            confirmed = RefinedObjective(objective=brief_objective, business_decision=brief_decision, route=brief_route,
+            confirmed = RefinedObjective(objective=brief_objective, business_decision=draft.business_decision, route=brief_route,
                 target=None if brief_target == 'Not specified' else brief_target, relevant_columns=brief_columns,
                 rationale=brief_reason, deliverable=brief_deliverable,
-                success_criteria=[s.strip() for s in brief_criteria.splitlines() if s.strip()],
-                questions=[s.strip() for s in brief_questions.splitlines() if s.strip()])
+                success_criteria=draft.success_criteria, questions=draft.questions)
             route_brief(confirmed, df, profile)
             st.session_state['confirmed_brief'] = confirmed
             st.session_state['workflow_step'] = 3
-            for state_key in ('proposal', 'proposal_key', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice'):
+            for state_key in ('proposal', 'proposal_key', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice', 'expert_review', 'expert_review_context', 'evaluation_fields', 'analysis_fields'):
                 st.session_state.pop(state_key, None)
         except RefinementError as exc:
             st.error(str(exc))
             st.stop()
     if st.button('Discard refined objective'):
         st.session_state.pop('workflow_step', None)
-        for state_key in ('refinement_draft', 'confirmed_brief', 'proposal', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice'):
+        for state_key in ('refinement_draft', 'confirmed_brief', 'proposal', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice', 'expert_review', 'expert_review_context'):
             st.session_state.pop(state_key, None)
         st.rerun()
     if 'confirmed_brief' not in st.session_state:
@@ -266,70 +266,136 @@ if not opportunities:
 
 assessments = {uc.key: assess_readiness(df, profile, uc) for uc in opportunities}
 for uc in opportunities:
-    assessment = assessments[uc.key]
     with st.container(border=True):
-        heading_cols = st.columns([4, 1])
-        heading_cols[0].subheader(uc.name)
-        heading_cols[1].caption(uc.support.value)
         st.write(uc.problem_statement)
-        target_note = uc.target or ("Not required" if uc.capability != "prediction" and not CAPABILITIES[uc.capability]["requires_target"] else "Needs confirmation")
-        st.caption(f"Target: {target_note} · Analysis: {uc.task_type}")
-        st.caption(execution_note(uc.capability))
-        st.write("**Why it appeared**")
-        for evidence in uc.evidence:
-            st.markdown(f"- {evidence}")
-        for uncertainty in uc.uncertainties:
-            st.caption(f"⚑ {uncertainty}")
+        details = f"Approach: {ROUTE_LABELS[confirmed.route]}"
+        if uc.target:
+            details += f" · Proposed outcome: {uc.target}"
+        elif uc.capability == 'prediction' or CAPABILITIES[uc.capability]['requires_target']:
+            details += " · Outcome needs confirmation"
+        st.caption(details)
+        st.caption('An initial evaluation with charts can be run in Step 5.')
 
 st.divider()
 show_step(3)
-st.header("3 · Assess data readiness")
-assessment_choice = st.selectbox("Use case to assess", opportunities, format_func=lambda x: x.name, key="assessment_choice")
+st.header("3 · Validate the data with your expertise")
+st.write("The app can inspect values and column names. Your knowledge is needed to confirm what the data means and whether the proposed result could be used in practice.")
+assessment_choice = opportunities[0]
 assessment = assessments[assessment_choice.key]
-st.subheader(f"{STATUS_ICON[assessment.status]} {assessment.status.value}")
-facts_col, risk_col, action_col = st.columns(3)
-with facts_col:
-    st.markdown("**Observed facts**")
-    for value in assessment.observed_facts:
-        st.markdown(f"- {value}")
-with risk_col:
-    st.markdown("**Heuristic risks**")
-    for value in assessment.risks or ["No material risk detected automatically."]:
-        st.markdown(f"- {value}")
-    for value in assessment.leakage_warnings:
-        st.markdown(f"- Leakage check: {value}")
-with action_col:
-    st.markdown("**Actions**")
-    for value in assessment.actions:
-        st.markdown(f"- {value}")
+review_context = (source_identity, assessment_choice.key, assessment_choice.target)
+flagged_columns = suspected_leakage_columns(df, assessment_choice.target)
+
+overview = st.columns(3)
+overview[0].metric("Records", f"{profile.rows:,}")
+overview[1].metric("Fields", profile.columns)
+overview[2].metric("Missing values", f"{profile.missing_total:,}")
+
+with st.container(border=True):
+    if assessment_choice.target:
+        summary = assessment.target_summary
+        st.markdown(f"**Proposed outcome:** `{assessment_choice.target}`")
+        if summary:
+            st.write(f"The outcome is missing in {summary.get('missing_rate', 0):.1%} of records and has {summary.get('unique_values', 0):,} observed value(s).")
+            if summary.get("minority_rate") is not None:
+                st.write(f"The less common outcome appears in {summary['minority_rate']:.1%} of labeled records. The evaluation will focus on finding that outcome, rather than relying on overall accuracy.")
+    else:
+        st.markdown("**No single outcome is required for this analysis.**")
+    if flagged_columns:
+        st.write("**Fields to check:** " + ", ".join(f"`{column}`" for column in flagged_columns))
+        st.caption("Their names or relationship to the outcome suggest they may only be known after the event. They stay excluded unless you confirm otherwise.")
+    if profile.identifier_columns:
+        st.write("**Identifier-like fields:** " + ", ".join(f"`{column}`" for column in profile.identifier_columns))
+        st.caption("Unique identifiers are excluded by default because they usually name a record rather than describe its condition.")
+
+requires_target = assessment_choice.capability in {"prediction", "interpretability"}
+with st.form("expert_data_review"):
+    if requires_target:
+        target_meaning = st.radio(
+            f"Does `{assessment_choice.target or 'the proposed outcome'}` represent the outcome you care about?",
+            ["Not sure", "Yes", "No"], horizontal=True,
+        )
+    else:
+        target_meaning = "Not applicable"
+    feature_timing = st.radio(
+        "Would the proposed input fields be available when this result is needed?",
+        ["Not sure", "All are available", "Some are unavailable"], horizontal=True,
+    )
+    approved_flagged = st.multiselect(
+        "Which flagged fields are definitely available before the outcome or decision?",
+        flagged_columns,
+        help="Leave a field unselected if there is any doubt. Unselected fields remain excluded.",
+    ) if flagged_columns else []
+    if profile.missing_total:
+        missing_values = st.radio(
+            "Why are some values missing?",
+            ["Not sure", "Expected and understood", "Collection problem"], horizontal=True,
+        )
+    else:
+        missing_values = "Not applicable"
+    representative_history = st.radio(
+        "Does this data reflect the people, equipment, products, or conditions where the result will be used?",
+        ["Not sure", "Yes", "No"], horizontal=True,
+    )
+    actionability = st.radio(
+        "Is there a person or team that can act on the result?",
+        ["Not sure", "Yes", "No"], horizontal=True,
+    )
+    submit_review = st.form_submit_button("Confirm data review", type="primary")
+
+if submit_review:
+    expert_review = ExpertReview(target_meaning, feature_timing, missing_values, representative_history, actionability, approved_flagged)
+    review_result = evaluate_expert_review(assessment_choice, assessment, expert_review)
+    st.session_state["expert_review"] = (expert_review, review_result)
+    st.session_state["expert_review_context"] = review_context
+    st.session_state["workflow_step"] = 3 if review_result.status == ReadinessStatus.BLOCKED else 4
+    for state_key in ("proposal", "proposal_key", "benchmark_result", "benchmark_context", "benchmark_choice", "poc_choice", "evaluation_fields", "analysis_fields"):
+        st.session_state.pop(state_key, None)
+
+saved_review = st.session_state.get("expert_review") if st.session_state.get("expert_review_context") == review_context else None
+if not saved_review:
+    st.info("Confirm the review above to continue.")
+    st.stop()
+expert_review, review_result = saved_review
+assessment = ReadinessAssessment(
+    review_result.status, assessment.observed_facts, review_result.reasons,
+    review_result.next_steps, assessment.leakage_warnings,
+    assessment.deployment_questions, assessment.target_summary,
+)
+assessments[assessment_choice.key] = assessment
+st.subheader(f"{STATUS_ICON[review_result.status]} {review_result.headline}")
+for reason in review_result.reasons:
+    st.write(f"- {reason}")
+if review_result.next_steps:
+    with st.expander("What to do next"):
+        for action in review_result.next_steps:
+            st.write(f"- {action}")
 
 if assessment.target_summary.get("class_distribution"):
     distribution = pd.Series(assessment.target_summary["class_distribution"]).rename_axis("class").reset_index(name="rows")
-    st.plotly_chart(px.bar(distribution, x="class", y="rows", title="Target distribution", color_discrete_sequence=["#5271e6"]), width="stretch")
+    st.plotly_chart(px.bar(distribution, x="class", y="rows", title="How often each outcome appears", color_discrete_sequence=["#5271e6"]), width="stretch")
 elif assessment_choice.target and assessment_choice.target in df and assessment_choice.task_type == "regression":
-    st.plotly_chart(px.histogram(df, x=assessment_choice.target, nbins=30, title="Target distribution", color_discrete_sequence=["#5271e6"]), width="stretch")
+    st.plotly_chart(px.histogram(df, x=assessment_choice.target, nbins=30, title="Range of observed outcome values", color_discrete_sequence=["#5271e6"]), width="stretch")
 
-with st.expander("Questions the data profile cannot answer"):
-    for question in assessment.deployment_questions:
-        st.markdown(f"- {question}")
+if review_result.status == ReadinessStatus.BLOCKED:
+    st.warning("Resolve the issue above, then update and confirm this review before continuing.")
+    st.stop()
 
 st.divider()
-continue_to(4, 'Continue to prioritization')
-st.header("4 · Prioritize opportunities")
+show_step(4)
+st.header("4 · Review the recommendation")
 ranking = prioritize(opportunities, assessments)
 st.info(recommendation(ranking))
-for rank, result in enumerate(ranking, 1):
+for result in ranking:
     with st.container(border=True):
-        cols = st.columns([.5, 3, 1.4, 1.2, 1.4])
-        cols[0].markdown(f"### {rank}")
-        cols[1].markdown(f"**{result.use_case.name}**  \n{result.use_case.business_rationale}")
-        cols[2].caption("DATA READINESS")
-        cols[2].write(result.data_feasibility)
-        cols[3].caption("COMPLEXITY")
-        cols[3].write(result.implementation_complexity)
-        cols[4].caption("NEXT ACTION")
-        cols[4].write("Scope evaluation" if "Sufficient" in result.decision_readiness else "Resolve data gap")
-        st.caption(result.recommendation_reason)
+        st.subheader(result.use_case.name)
+        st.write(result.use_case.business_rationale)
+        cols = st.columns(3)
+        cols[0].caption("DATA CONFIDENCE")
+        cols[0].write(result.data_feasibility)
+        cols[1].caption("IMPLEMENTATION EFFORT")
+        cols[1].write(result.implementation_complexity)
+        cols[2].caption("NEXT STEP")
+        cols[2].write("Run an initial evaluation")
 
 st.divider()
 continue_to(5, 'Continue to evaluation')
@@ -337,80 +403,120 @@ st.header("5 · Evaluate the proposed approach")
 benchmark_case = st.selectbox("Confirmed use case", opportunities, format_func=lambda x: x.name, key="benchmark_choice")
 benchmark_assessment = assessments[benchmark_case.key]
 benchmark_result = None
-if benchmark_case.capability != "prediction":
-    guide = CAPABILITIES[benchmark_case.capability]
-    st.info(execution_note(benchmark_case.capability))
-    st.write(f"**Evaluation approach:** {guide['design']}")
-    st.write(f"**Baseline:** {guide['baseline']}")
-    st.write(f"**Success measures:** {guide['metrics']}")
-    st.write(f"**Deliverable:** {guide['deliverable']}")
-elif benchmark_assessment.status == ReadinessStatus.BLOCKED or not benchmark_case.target:
-    st.error("Benchmarking is blocked until a usable target and sufficient historical labels are available.")
-else:
-    leakage_columns = suspected_leakage_columns(df, benchmark_case.target)
-    defaults, excluded = recommended_features(df, profile, benchmark_case, leakage_columns)
+supervised = benchmark_case.capability in {"prediction", "interpretability"}
+runner_case = benchmark_case
+generated_rows = 100
+explain = False
+benchmark_eligible = False
+selected_features = []
+excluded = {}
+if supervised:
+    if benchmark_case.capability == "interpretability":
+        numeric = bool(benchmark_case.target and pd.api.types.is_numeric_dtype(df[benchmark_case.target]))
+        outcome_type = st.selectbox("What kind of outcome are we explaining?", ["A category or event", "A numeric value"], index=1 if numeric and df[benchmark_case.target].nunique() > 20 else 0)
+        task = "regression" if outcome_type == "A numeric value" else "binary classification" if df[benchmark_case.target].nunique() == 2 else "multiclass classification"
+        runner_case = replace(benchmark_case, task_type=task, capability="prediction")
+        st.write("We first check the model on unseen records, then explain which fields it relied on and how individual estimates change.")
+    elif benchmark_case.forecasting:
+        st.write("Test estimates on the latest historical dates and compare them with the values that actually occurred.")
+    else:
+        st.write("Compare TabPFN with simple approaches on unseen records, then inspect correct results, mistakes, and influential fields.")
+    approved_flagged_columns = set(expert_review.approved_flagged_columns)
+    leakage_columns = [
+        column for column in suspected_leakage_columns(df, benchmark_case.target)
+        if column not in approved_flagged_columns
+    ]
+    defaults, excluded = recommended_features(df, profile, runner_case, leakage_columns)
     if benchmark_case.suggested_columns:
         defaults = [c for c in defaults if c in benchmark_case.suggested_columns]
     candidate_features = [str(c) for c in df.columns if str(c) != benchmark_case.target]
     selected_features = st.multiselect(
-        "Features to use", candidate_features, default=defaults,
+        "Fields to use", candidate_features, default=defaults, key="evaluation_fields",
         help="Review these with a domain owner. Identifier-like and suspected leakage fields are excluded by default.",
     )
     if excluded:
         st.caption("Excluded by default: " + "; ".join(f"`{name}` — {reason}" for name, reason in excluded.items() if name != benchmark_case.target))
 
     try:
-        preview = prepare_benchmark(df, profile, benchmark_case, selected_features)
+        preview = prepare_benchmark(df, profile, runner_case, selected_features)
         preview.plan.excluded_columns = excluded
         plan_cols = st.columns(3)
-        plan_cols[0].metric("Training rows", f"{preview.plan.train_rows:,}")
-        plan_cols[1].metric("Holdout rows", f"{preview.plan.test_rows:,}")
-        plan_cols[2].metric("Selected features", len(selected_features))
+        plan_cols[0].metric("Learning records", f"{preview.plan.train_rows:,}")
+        plan_cols[1].metric("Unseen test records", f"{preview.plan.test_rows:,}")
+        plan_cols[2].metric("Selected fields", len(selected_features))
         st.caption(f"Evaluation design: {preview.plan.split_strategy}.")
         benchmark_eligible = True
     except BenchmarkError as exc:
         st.warning(str(exc))
         benchmark_eligible = False
 
-    env_token_available = bool(os.getenv("TABPFN_TOKEN"))
-    token_input = st.text_input(
-        "TabPFN API token" + (" (using TABPFN_TOKEN from environment)" if env_token_available else ""),
-        type="password", placeholder="Leave blank to use TABPFN_TOKEN", help="The value is held only in this Streamlit session and is not written by this app.",
-    )
-    consent = st.checkbox(
-        "I confirm I am permitted to send the selected training and holdout data to the TabPFN cloud service.",
-    )
-    if not env_token_available and not token_input:
-        st.info("Enter a token or launch Streamlit with `TABPFN_TOKEN` set. Create a key at `platform.priorlabs.ai/account/api-keys`.")
-    if st.button(
-        "Run TabPFN benchmark", type="primary",
-        disabled=not benchmark_eligible or not consent or not (env_token_available or bool(token_input)),
-    ):
-        with st.spinner("Running baselines and TabPFN on the frozen holdout…"):
-            try:
-                result = run_tabpfn_benchmark(df, profile, benchmark_case, selected_features, token_input or None)
-                result.plan.excluded_columns = excluded
-                st.session_state["benchmark_result"] = result
-                st.session_state["benchmark_context"] = (dataset_name, benchmark_case.key, tuple(selected_features))
-            except BenchmarkError as exc:
-                st.error(str(exc))
+    explain = st.checkbox("Explain the predictions", value=len(selected_features) <= 12,
+                          disabled=len(selected_features) > 12,
+                          help="Adds individual prediction explanations using extra API requests. Select at most 12 fields.")
+    st.caption("Inspect how each field affects up to five individual results. Explanation checks require additional API usage.")
+    if benchmark_case.capability == "interpretability" and not explain:
+        st.info("Choose at most 12 fields to evaluate and explain this approach.")
+        benchmark_eligible = False
+else:
+    guide = CAPABILITIES[benchmark_case.capability]
+    st.write(guide['purpose'])
+    available = analysis_columns(df, profile)
+    defaults = [c for c in available if not benchmark_case.suggested_columns or c in benchmark_case.suggested_columns][:8]
+    selected_features = st.multiselect("Fields to analyze", available, default=defaults, key="analysis_fields")
+    st.caption("Initial evaluations use up to 1,000 distinct records and 2–8 fields. Identifiers, constants, and date fields are omitted. Reference records and unseen evaluation records stay separate.")
+    benchmark_eligible = 2 <= len(selected_features) <= 8
+    if not benchmark_eligible:
+        st.info("Choose 2–8 fields to continue.")
+    if benchmark_case.capability == "synthetic_generation":
+        generated_rows = st.slider("Records to generate", 20, 500, 100, step=20)
+        st.caption("Generate records with conditional TabPFN sampling, then compare their distributions and relationships with untouched original records and a resampling baseline.")
+    elif benchmark_case.capability == "imputation":
+        st.caption("Temporarily hide known values to test recovery, compare with a simple median/category baseline, and fill real gaps in unseen evaluation records. Each field is assessed separately.")
+    else:
+        st.caption("Rank unseen records by how surprising their values are to conditional TabPFN models. Compare with Isolation Forest and inspect the fields behind each alert.")
+    st.caption("These evaluations make several TabPFN API requests per selected field. Additional API usage applies.")
+    with st.expander("How this initial evaluation works"):
+        st.write("The app uses conditional column models through the TabPFN API. This is a bounded initial check of the proposed approach; the full experimental joint-density extension is not used. The results include method-specific limitations for you to review.")
 
-    expected_context = (dataset_name, benchmark_case.key, tuple(selected_features))
-    if st.session_state.get("benchmark_context") == expected_context:
-        benchmark_result = st.session_state.get("benchmark_result")
-    if benchmark_result:
-        st.success("TabPFN inference completed. The values below are measured on the displayed holdout.")
-        metrics_frame = pd.DataFrame(benchmark_result.metrics).T
-        st.dataframe(metrics_frame.style.format("{:.3f}"), width="stretch")
-        for note in benchmark_result.notes:
-            st.caption(f"• {note}")
+configured_token = os.getenv("TABPFN_TOKEN", "").strip()
+consent = st.checkbox("I confirm I am permitted to send the selected data to the TabPFN cloud service for this evaluation and its explanation checks.")
+if not configured_token:
+    st.info("Evaluation is unavailable until TABPFN_TOKEN is configured in the project's .env file. Restart Streamlit after adding it.")
+expected_context = (dataset_name, benchmark_case.key, tuple(selected_features), runner_case.task_type, explain, generated_rows)
+if st.session_state.get("evaluation_config") != expected_context:
+    st.session_state.pop("proposal", None)
+    st.session_state.pop("proposal_key", None)
+    st.session_state["evaluation_config"] = expected_context
+if st.button("Run TabPFN evaluation", type="primary", disabled=not benchmark_eligible or not consent or not configured_token):
+    st.session_state.pop("benchmark_result", None)
+    st.session_state.pop("benchmark_context", None)
+    st.session_state.pop("proposal", None)
+    with st.spinner("Evaluating with TabPFN and preparing the result charts…"):
+        try:
+            if supervised:
+                result = run_tabpfn_benchmark(df, profile, runner_case, selected_features, configured_token, explain=explain, include_global_importance=False)
+                result.plan.excluded_columns = excluded
+            else:
+                result = run_tabpfn_analysis(df, profile, benchmark_case.capability, selected_features, configured_token, generated_rows=generated_rows)
+            st.session_state["benchmark_result"] = result
+            st.session_state["benchmark_context"] = expected_context
+        except BenchmarkError as exc:
+            st.error(str(exc))
+if st.session_state.get("benchmark_context") == expected_context:
+    benchmark_result = st.session_state.get("benchmark_result")
+if benchmark_result:
+    st.success("Evaluation completed. The charts below show measured results from this run.")
+    if supervised:
+        render_benchmark(benchmark_result, forecasting=benchmark_case.forecasting)
+    else:
+        render_analysis(benchmark_result)
 
 st.divider()
 continue_to(6, 'Continue to POC plan' if benchmark_result else 'Continue to POC plan without benchmark results')
 st.header("6 · Generate a POC plan")
 chosen = st.selectbox("Select an opportunity", opportunities, format_func=lambda x: x.name, key="poc_choice")
 if st.button("Generate POC proposal", type="primary"):
-    matching_benchmark = st.session_state.get("benchmark_result") if st.session_state.get("benchmark_context", (None, None))[0:2] == (dataset_name, chosen.key) else None
+    matching_benchmark = benchmark_result if chosen.key == benchmark_case.key else None
     st.session_state["proposal"] = generate_poc_markdown(dataset_name, profile, context, chosen, assessments[chosen.key], benchmark=matching_benchmark)
     st.session_state["proposal_key"] = chosen.key
 proposal = st.session_state.get("proposal")

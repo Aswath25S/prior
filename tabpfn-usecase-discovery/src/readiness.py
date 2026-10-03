@@ -75,7 +75,7 @@ def assess_readiness(df: pd.DataFrame, profile: DatasetProfile, use_case: UseCas
             [f"Dataset contains {profile.rows:,} rows and {profile.columns} columns.",
              f"Observed {profile.missing_total:,} missing cells and {profile.duplicate_rows:,} duplicate rows.",
              "A fixed outcome label is not required for this capability." if not guide["requires_target"] else f"Proposed explanatory outcome: {use_case.target or 'not specified'}"],
-            risks, [guide["design"], "Confirm the intended action and agree on evaluation criteria.", "Integrate and validate the experimental extension runner before execution."],
+            risks, [guide["design"], "Confirm the intended action and agree on evaluation criteria.", "Review the initial evaluation method and validate it against the full intended workflow."],
             [], ["Who will use the output, and what decision will it support?", guide["success"],
                  "Which columns and records are appropriate for this analysis?"],
         )

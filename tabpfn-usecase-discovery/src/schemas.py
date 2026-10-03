@@ -102,3 +102,33 @@ class BenchmarkResult:
     plan: BenchmarkPlan
     metrics: dict[str, dict[str, float]]
     notes: list[str]
+    predictions: Any = None
+    probabilities: Any = None
+    feature_importance: Any = None
+    case_explanations: Any = None
+
+
+@dataclass
+class AnalysisResult:
+    capability: str
+    metrics: Any
+    artifacts: dict[str, Any]
+    notes: list[str]
+
+
+@dataclass
+class ExpertReview:
+    target_meaning: str = "Not applicable"
+    feature_timing: str = "Not sure"
+    missing_values: str = "Not applicable"
+    representative_history: str = "Not sure"
+    actionability: str = "Not sure"
+    approved_flagged_columns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ExpertReviewResult:
+    status: ReadinessStatus
+    headline: str
+    reasons: list[str]
+    next_steps: list[str]

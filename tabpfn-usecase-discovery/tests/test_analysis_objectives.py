@@ -28,7 +28,7 @@ def test_targetless_objectives_have_specific_plans(objective, capability, phrase
     proposal = generate_poc_markdown('Sensor history', profile, context, case, assessment)
     assert objective in proposal and context.data_description in proposal
     assert phrase in proposal
-    assert 'runner is not integrated' in proposal
+    assert 'bounded initial evaluation' in proposal
     assert 'No single prediction target is required' in proposal
 
 

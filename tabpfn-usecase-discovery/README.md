@@ -26,7 +26,7 @@ TABPFN_TOKEN="your-token"
 
 Restart Streamlit after editing `.env`. The app loads this file automatically, regardless of the launch directory. The file is ignored by Git; `.env.example` is a blank template. An existing environment variable takes precedence over `.env`.
 
-You can also enter the key in the app's password field or set it before launch:
+The prototype uses the configured key for all evaluations; there is no user-facing token input. You can also set the key before launch:
 
 ```bash
 export TABPFN_TOKEN="your-token"
@@ -43,7 +43,7 @@ Add `OPENAI_API_KEY="your-key"` and optionally `OPENAI_MODEL="gpt-4.1-mini"` to 
 
 Refinement uses the Responses API with a strict typed response and `store=False`. It sends the four context inputs and computed schema/statistics; it does not send raw rows. User-entered descriptions and column names are included, so avoid inserting secrets into them. Errors leave local discovery available. Calls occur only on the refinement button, not on every rerun.
 
-The confirmed primary capability directly routes assessment, evaluation, and the POC. Classification/regression/forecasting use the existing prediction benchmark. Anomaly detection, imputation, interpretability, and synthetic generation route to their extension-specific POC flows (execution not yet integrated). Ambiguous or unsupported goals can route to clarification. Invalid column references are rejected locally; the API's valid format does not guarantee a semantically correct recommendation. Users can correct the brief before applying it.
+The confirmed primary capability directly routes assessment, evaluation, and the POC. All supported categories have a Step 5 evaluation with measured charts and downloadable records. Ambiguous or unsupported goals can route to clarification. Invalid column references are rejected locally; the API's valid format does not guarantee a semantically correct recommendation. Users can correct the brief before applying it.
 
 The proposed feature list is intersected with conservative benchmark defaults; targets and suspected leakage fields are excluded by default. Changing source inputs invalidates the brief and all dependent results. The original objective remains in the proposal alongside the confirmed brief, deliverable, decision, criteria, and questions.
 
@@ -63,6 +63,8 @@ pytest -q
 - `src/readiness.py`: target, feature-quality, leakage, temporal, and unanswered deployment checks.
 - `src/prioritization.py`: explainable prioritization using user-provided importance and observed feasibility.
 - `src/benchmark.py`: conservative feature defaults, leakage-safe splitting, preprocessing, baseline models, TabPFN inference, and measured holdout metrics.
+- `src/analysis.py`: bounded conditional TabPFN workflows for imputation, anomaly ranking, and synthetic sampling.
+- `src/result_views.py`: measured result charts, field importance, individual sensitivity explanations, and downloads.
 - `src/poc_generator.py`: dataset-specific Markdown proposal generation.
 - `scripts/generate_sample_data.py`: reproducible synthetic manufacturing, retail, and absent-target examples.
 
@@ -70,6 +72,18 @@ pytest -q
 
 Step 2 collects industry, a business objective, information about the data, and an optional target. Discovery uses explicit rules to match objectives and data descriptions to prediction, outlier detection, missing-data recovery, predictive factor analysis, or synthetic generation. Prioritization considers objective alignment, data feasibility, and implementation complexity; no business-value ratings are inferred.
 
-Classification/regression benchmarks can run through the installed TabPFN client. Other capabilities have tailored readiness checks, evaluation designs, and POC proposals, but their experimental extension runners are not integrated. See [official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions). An API key alone does not enable these runners.
+All evaluations use the installed TabPFN API client; no GPU or second virtual environment is needed. The initial evaluation methods are explicit:
+
+- Classification: one table compares traditional models and TabPFN across accuracy, balanced accuracy, precision, recall, F1, and applicable AUC scores.
+- Regression: one comparison table shows MAE, RMSE, and R². Model prediction ranges remain available in the measured artifacts.
+- Forecasting: whole-date chronological holdout with the same numeric comparison table. This tests historical supplied inputs; it does not implement multi-step future forecasting or generate future covariates.
+- Interpretation: retains one “Inspect an individual result” chart, an explanation download, and expandable guidance. Sensitivity checks replace one field by a typical training value in up to five records, with at most 12 fields. These require additional API requests and are not SHAP values or causal effects. The backend can also compute global permutation importance, but the simplified UI skips these extra calls.
+- Missing-value recovery: holds out 20% of rows, masks known cells one field at a time, compares recovery with training-only median/mode, and fills real gaps in held-out records. Downloads preserve original missing flags. Artificial masking does not establish accuracy for actual missing cells.
+- Unusual-record ranking: predicts each field from the others and aggregates numeric scaled residual/category probability surprise percentiles. Shows a comparison table with Isolation Forest and one record-level field surprise chart. Alert-list agreement is not accuracy; precision/recall require review labels.
+- Synthetic generation: samples the first field empirically, then uses conditional TabPFN category probabilities or numeric quantiles for subsequent fields. Compares marginal distributions, pairwise encoded relationships, and exact reference matches against untouched holdout records and a resampling baseline. Numeric sampling uses the middle 90% of quantiles; missingness is not synthesized, and extreme values may be underrepresented. No privacy guarantee is made.
+
+Targetless evaluations use at most 1,000 distinct records and 2–8 fields, with identifiers, constants, and date columns omitted. They are conditional client workflows, not the full experimental joint-density methods in [official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions). Changing evaluation settings hides mismatched old results. The POC incorporates matching measured results.
+
+Result pages show comparison tables rather than collections of charts. Missing-value recovery retains one individual recovery view; generation shows per-field fidelity comparisons. Detailed method notes are under “How to interpret this evaluation.”
 
 Column names and lightweight statistics cannot establish business meaning, feature availability, causality, or regulatory acceptability. Every discovered opportunity is a candidate requiring confirmation. Leakage matches are warnings, not assertions. Benchmark metrics come from a single holdout and do not establish production performance or business impact. Changes to the dataset or business context clear prior proposals and benchmark results.

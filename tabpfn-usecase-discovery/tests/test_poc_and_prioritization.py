@@ -21,7 +21,7 @@ def test_prioritization_explains_user_inputs():
     ranked = prioritize(cases, assessments)
     assert ranked
     assert "objective" in ranked[0].recommendation_reason
-    assert "Investigate" in recommendation(ranked)
+    assert "Proceed with" in recommendation(ranked)
 
 
 def test_poc_is_dataset_specific_and_has_no_performance_claim():

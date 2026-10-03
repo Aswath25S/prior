@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-from .schemas import BenchmarkResult, BusinessContext, DatasetProfile, ReadinessAssessment, UseCase
+from .schemas import AnalysisResult, BenchmarkResult, BusinessContext, DatasetProfile, ReadinessAssessment, UseCase
 from .capabilities import CAPABILITIES
 
 
 def generate_poc_markdown(
     dataset_name: str, profile: DatasetProfile, context: BusinessContext,
     use_case: UseCase, assessment: ReadinessAssessment,
-    cost_context: str = "Not provided", benchmark: BenchmarkResult | None = None,
+    cost_context: str = "Not provided", benchmark: BenchmarkResult | AnalysisResult | None = None,
 ) -> str:
     proposal = _generate_poc_markdown(dataset_name, profile, context, use_case, assessment, cost_context, benchmark)
+    if benchmark and use_case.capability != "prediction":
+        import pandas as pd
+        frame = benchmark.metrics if isinstance(benchmark, AnalysisResult) else pd.DataFrame(benchmark.metrics).T.reset_index(names="Approach")
+        header = "| " + " | ".join(str(c) for c in frame.columns) + " |"
+        separator = "|" + "---|" * len(frame.columns)
+        rows = ["| " + " | ".join(str(value).replace("|", "/") for value in row) + " |" for row in frame.itertuples(index=False, name=None)]
+        proposal += "\n## Measured initial evaluation\n\n" + "\n".join([header, separator, *rows]) + "\n\n" + "\n".join(f"- {note}" for note in benchmark.notes)
+        if isinstance(benchmark, BenchmarkResult) and benchmark.feature_importance is not None:
+            proposal += "\n\nPredictive field reliance (permutation importance):\n" + "\n".join(f"- {row['Field']}: {row['Importance']:.4f}" for _, row in benchmark.feature_importance.iterrows())
     if use_case.deliverable:
         criteria = '\n'.join(f'- {item}' for item in use_case.success_criteria)
         questions = '\n'.join(f'- {item}' for item in use_case.uncertainties)
@@ -209,11 +218,11 @@ Status: {assessment.status.value}.
 1. Confirm the objective, intended output, data meaning, and operational owner.
 2. Validate coverage, missingness, duplicates, constraints, and relevant features.
 3. Freeze the evaluation protocol and baseline.
-4. Integrate and validate the appropriate experimental TabPFN extension.
+4. Run the initial client-based TabPFN evaluation, then validate the full intended workflow.
 5. Evaluate outputs against the agreed metrics and conduct stakeholder review.
 6. Decide whether to pilot, improve the data, or stop.
 
-**Execution status:** This app supports scoping this capability. Its extension runner is not integrated and no results have been measured. The classification/regression benchmark does not validate this entire POC.
+**Execution status:** Step 5 can run a bounded initial evaluation through the TabPFN API. Only a measured evaluation section in this proposal confirms that a run occurred. Conditional column models support missing-data recovery, unusual-record ranking, and synthetic sampling; they do not use the extensions' full joint-density runner. Interpretation uses permutation importance and individual sensitivity checks rather than SHAP. These initial checks do not validate this entire POC.
 
 Capability reference: [Official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions).
 

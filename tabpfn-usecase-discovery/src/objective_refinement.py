@@ -79,8 +79,10 @@ Routes:
 - imputation: recover missing feature values, with masked-cell evaluation.
 - interpretability: explain a supervised model's predictive associations; requires an outcome.
 - synthetic_generation: generate representative artificial records; never guarantee privacy.
-The last four routes require experimental TabPFN extensions: this app scopes them but does
-not execute them. Do not downgrade their recommendation solely because of this limitation.
+The app evaluates the last four routes through bounded conditional TabPFN client workflows:
+column prediction for imputation, conditional surprise for anomaly ranking, conditional
+sampling for synthetic generation, and permutation/sensitivity checks for interpretation.
+These initial evaluations are not full joint-density extension runs or causal explanations.
 - needs_clarification: vague goals, unsupported capabilities, causal/optimization claims not
 supported by this app, or insufficient context to choose responsibly.
 Only reference existing column names in target and relevant_columns. Target is null for

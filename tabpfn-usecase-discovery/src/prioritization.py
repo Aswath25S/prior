@@ -29,4 +29,8 @@ def recommendation(results: list[PriorityResult]) -> str:
     if not viable:
         return "First resolve the listed data gaps and confirm the intended analysis before launching a POC."
     winner = viable[0]
-    return f"Investigate **{winner.use_case.name}** first. {winner.recommendation_reason} Resolve its listed risks before treating it as an approved POC."
+    if winner.data_feasibility == ReadinessStatus.READY.value:
+        review_note = "The data review supports an initial evaluation."
+    else:
+        review_note = "The initial evaluation should use the safeguards identified in the data review."
+    return f"Proceed with **{winner.use_case.name}** as the proposed approach. It matches the confirmed objective. {review_note}"
