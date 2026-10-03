@@ -1,6 +1,6 @@
 # TabPFN Use-Case Discovery Engine
 
-An unofficial prototype that turns a tabular dataset and business context into transparent use-case candidates, readiness checks, prioritization, an optional real TabPFN benchmark, and an exportable POC proposal. Discovery and profiling run locally. TabPFN cloud inference runs only after explicit user confirmation. The app does not calculate ROI or claim production readiness.
+An unofficial prototype that turns a tabular dataset and business context into a confirmed TabPFN use case, expert-guided data checks, and an optional measured evaluation. It then directs interested users to official Prior Labs documentation, API access, examples, community support, and contact options. Discovery and profiling run locally. TabPFN cloud inference runs only after explicit user confirmation. The app does not calculate ROI or claim production readiness.
 
 ## Run locally
 
@@ -43,9 +43,9 @@ Add `OPENAI_API_KEY="your-key"` and optionally `OPENAI_MODEL="gpt-4.1-mini"` to 
 
 Refinement uses the Responses API with a strict typed response and `store=False`. It sends the four context inputs and computed schema/statistics; it does not send raw rows. User-entered descriptions and column names are included, so avoid inserting secrets into them. Errors leave local discovery available. Calls occur only on the refinement button, not on every rerun.
 
-The confirmed primary capability directly routes assessment, evaluation, and the POC. All supported categories have a Step 5 evaluation with measured charts and downloadable records. Ambiguous or unsupported goals can route to clarification. Invalid column references are rejected locally; the API's valid format does not guarantee a semantically correct recommendation. Users can correct the brief before applying it.
+The confirmed primary capability directly routes the assessment, evaluation, and recommended official documentation. All supported categories have a Step 5 evaluation with measured charts and downloadable records. Ambiguous or unsupported goals can route to clarification. Invalid column references are rejected locally; the API's valid format does not guarantee a semantically correct recommendation. Users can correct the brief before applying it.
 
-The proposed feature list is intersected with conservative benchmark defaults; targets and suspected leakage fields are excluded by default. Changing source inputs invalidates the brief and all dependent results. The original objective remains in the proposal alongside the confirmed brief, deliverable, decision, criteria, and questions.
+The proposed feature list is intersected with conservative evaluation defaults; targets and suspected leakage fields are excluded by default. Changing source inputs invalidates the brief and all dependent results.
 
 ### Run tests
 
@@ -66,7 +66,6 @@ pytest -q
 - `src/analysis.py`: bounded conditional TabPFN workflows for imputation, anomaly ranking, and synthetic sampling.
 - `src/result_views.py`: model comparison tables, individual SHAP waterfalls, and downloads.
 - `src/shap_explanations.py`: exact or permutation-estimated empirical interventional Shapley values for the API model.
-- `src/poc_generator.py`: dataset-specific Markdown proposal generation.
 - `scripts/generate_sample_data.py`: reproducible synthetic manufacturing, retail, and absent-target examples.
 
 ## Heuristic boundaries
@@ -83,8 +82,10 @@ All evaluations use the installed TabPFN API client; no GPU or second virtual en
 - Unusual-record ranking: predicts each field from the others and aggregates numeric scaled residual/category probability surprise percentiles. Shows a comparison table with Isolation Forest and one record-level field surprise chart. Alert-list agreement is not accuracy; precision/recall require review labels.
 - Synthetic generation: samples the first field empirically, then uses conditional TabPFN category probabilities or numeric quantiles for subsequent fields. Compares marginal distributions, pairwise encoded relationships, and exact reference matches against untouched holdout records and a resampling baseline. Numeric sampling uses the middle 90% of quantiles; missingness is not synthesized, and extreme values may be underrepresented. No privacy guarantee is made.
 
-Targetless evaluations use at most 1,000 distinct records and 2–8 fields, with identifiers, constants, and date columns omitted. They are conditional client workflows, not the full experimental joint-density methods in [official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions). Changing evaluation settings hides mismatched old results. The POC incorporates matching measured results.
+Targetless evaluations use at most 1,000 distinct records and 2–8 fields, with identifiers, constants, and date columns omitted. They are conditional client workflows, not the full experimental joint-density methods in [official TabPFN extensions](https://github.com/PriorLabs/tabpfn-extensions). Changing evaluation settings hides mismatched old results.
 
 Result pages show comparison tables rather than collections of charts. Missing-value recovery retains one individual recovery view; generation shows per-field fidelity comparisons. Detailed method notes are under “How to interpret this evaluation.”
 
-Column names and lightweight statistics cannot establish business meaning, feature availability, causality, or regulatory acceptability. Every discovered opportunity is a candidate requiring confirmation. Leakage matches are warnings, not assertions. Benchmark metrics come from a single holdout and do not establish production performance or business impact. Changes to the dataset or business context clear prior proposals and benchmark results.
+Column names and lightweight statistics cannot establish business meaning, feature availability, causality, or regulatory acceptability. Every discovered opportunity is a candidate requiring confirmation. Leakage matches are warnings, not assertions. Evaluation metrics come from a single holdout and do not establish production performance or business impact. Changes to the dataset or business context clear prior results.
+
+Step 6 does not generate a proposal. It links to the official documentation overview, quickstart, recommended capability guide, API-key management, benchmarking guide, client and extension repositories, TabPFN Discord, and the Prior Labs contact page.

@@ -7,8 +7,6 @@ import pytest
 
 from src.data_profiler import profile_dataset
 from src.objective_refinement import RefinedObjective, RefinementError, refine_objective, route_brief, _api_error_message
-from src.poc_generator import generate_poc_markdown
-from src.readiness import assess_readiness
 from src.schemas import BusinessContext, SupportLevel
 
 
@@ -41,8 +39,8 @@ def test_request_uses_structured_output_no_rows_and_does_not_execute_tabpfn():
     assert 'secret-row-value' not in serialized and 'fake-key' not in serialized
     case = route_brief(result, df, profile)
     assert case.capability == 'prediction' and case.task_type == 'binary classification'
-    proposal = generate_poc_markdown('Machines', profile, context, case, assess_readiness(df, profile, case))
-    assert 'Inspection queue' in proposal and 'Which machines to inspect first' in proposal
+    assert case.deliverable == 'Inspection queue'
+    assert case.business_rationale == 'Which machines to inspect first'
 
 
 @pytest.mark.parametrize('route', ['anomaly_detection', 'imputation', 'synthetic_generation', 'interpretability'])

@@ -214,15 +214,15 @@ def test_step_five_runs_and_exports_results_for_each_route(route, fake_client, m
     calls = len(fake_client)
     app.run()
     assert len(fake_client) == calls
-    click(app, "Continue to POC plan")
-    click(app, "Generate POC proposal")
-    proposal = app.session_state["proposal"]
-    assert "Measured" in proposal
-    if targetless:
-        assert "No results have been measured" not in proposal
+    click(app, "If interested, see official next steps")
+    links = {button.label: button.url for button in app.get("link_button")}
+    assert links["Documentation overview ↗"] == "https://docs.priorlabs.ai/overview"
+    assert links["Quickstart ↗"] == "https://docs.priorlabs.ai/quickstart"
+    assert links["Manage API keys ↗"] == "https://platform.priorlabs.ai/account/api-keys"
+    assert links["Book a demo with Prior Labs ↗"] == "https://priorlabs.ai/contact"
+    assert "Open the recommended capability guide ↗" in links
     fields = next(select for select in app.multiselect if select.label in {"Fields to use", "Fields to analyze"})
     fields.set_value(fields.value[:2]).run(timeout=30)
     assert not app.exception
     assert not any("Evaluation completed" in success.value for success in app.success)
-    assert "proposal" not in app.session_state
     assert len(fake_client) == calls

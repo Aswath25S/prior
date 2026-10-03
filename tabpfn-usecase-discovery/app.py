@@ -18,7 +18,6 @@ from src.expert_review import evaluate_expert_review
 from src.objective_refinement import RefinedObjective, RefinementError, ROUTE_LABELS, refine_objective, route_brief
 from src.data_loader import DataValidationError, load_csv
 from src.data_profiler import profile_dataset
-from src.poc_generator import generate_poc_markdown
 from src.prioritization import prioritize, recommendation
 from src.readiness import assess_readiness, suspected_leakage_columns
 from src.schemas import BusinessContext, ExpertReview, ReadinessAssessment, ReadinessStatus, SupportLevel
@@ -74,12 +73,12 @@ st.markdown("""
 
 st.markdown('<div class="eyebrow">Unofficial local prototype</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero">TabPFN Use-Case Discovery Engine</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtle">Turn a tabular dataset and a business question into transparent opportunity candidates, a data-readiness assessment, and an actionable POC scope.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtle">Turn a tabular dataset and a business question into a clear TabPFN opportunity, a data-readiness review, and a measured initial evaluation.</div>', unsafe_allow_html=True)
 progress = st.empty()
 
 
 def show_step(step: int) -> None:
-    labels = ['Dataset', 'Objective', 'Review data', 'Recommendation', 'Evaluate', 'POC plan']
+    labels = ['Dataset', 'Objective', 'Review data', 'Recommendation', 'Evaluate', 'Next steps']
     badges = ''.join(f"<span class='step{' active' if i == step else ''}'>{i} {label}</span>" for i, label in enumerate(labels, 1))
     progress.markdown(f"<div class='steps'>{badges}</div>", unsafe_allow_html=True)
 
@@ -126,8 +125,8 @@ source_identity = (
 if st.session_state.get("active_source_identity") != source_identity:
     st.session_state.pop('workflow_step', None)
     for state_key in (
-        "proposal", "proposal_key", "benchmark_result", "benchmark_context",
-        "assessment_choice", "benchmark_choice", "poc_choice", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields",
+        "benchmark_result", "benchmark_context",
+        "assessment_choice", "benchmark_choice", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields",
     ):
         st.session_state.pop(state_key, None)
     st.session_state["active_source_identity"] = source_identity
@@ -191,7 +190,7 @@ context = BusinessContext(industry=industry, objective=objective, data_descripti
 context_identity = (source_identity, industry, objective, data_description, selected_target)
 if st.session_state.get("analysis_context") != context_identity:
     st.session_state.pop('workflow_step', None)
-    for state_key in ("proposal", "proposal_key", "benchmark_result", "benchmark_context", "assessment_choice", "benchmark_choice", "poc_choice", "refinement_draft", "confirmed_brief", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields"):
+    for state_key in ("benchmark_result", "benchmark_context", "assessment_choice", "benchmark_choice", "refinement_draft", "confirmed_brief", "expert_review", "expert_review_context", "evaluation_fields", "analysis_fields"):
         st.session_state.pop(state_key, None)
     for state_key in list(st.session_state):
         if state_key.startswith('brief_edit_'):
@@ -208,7 +207,7 @@ if st.button('Refine objective', disabled=not openai_key or not objective.strip(
         st.session_state['refinement_draft'] = draft
         st.session_state.pop('workflow_step', None)
         for state_key in list(st.session_state):
-            if state_key.startswith('brief_edit_') or state_key in ('confirmed_brief', 'proposal', 'proposal_key', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice'):
+            if state_key.startswith('brief_edit_') or state_key in ('confirmed_brief', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice'):
                 st.session_state.pop(state_key, None)
     except RefinementError as exc:
         st.error(str(exc))
@@ -233,14 +232,14 @@ if draft:
             route_brief(confirmed, df, profile)
             st.session_state['confirmed_brief'] = confirmed
             st.session_state['workflow_step'] = 3
-            for state_key in ('proposal', 'proposal_key', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice', 'expert_review', 'expert_review_context', 'evaluation_fields', 'analysis_fields'):
+            for state_key in ('benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'expert_review', 'expert_review_context', 'evaluation_fields', 'analysis_fields'):
                 st.session_state.pop(state_key, None)
         except RefinementError as exc:
             st.error(str(exc))
             st.stop()
     if st.button('Discard refined objective'):
         st.session_state.pop('workflow_step', None)
-        for state_key in ('refinement_draft', 'confirmed_brief', 'proposal', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'poc_choice', 'expert_review', 'expert_review_context'):
+        for state_key in ('refinement_draft', 'confirmed_brief', 'benchmark_result', 'benchmark_context', 'assessment_choice', 'benchmark_choice', 'expert_review', 'expert_review_context'):
             st.session_state.pop(state_key, None)
         st.rerun()
     if 'confirmed_brief' not in st.session_state:
@@ -339,7 +338,7 @@ if submit_review:
     st.session_state["expert_review"] = (expert_review, review_result)
     st.session_state["expert_review_context"] = review_context
     st.session_state["workflow_step"] = 3 if review_result.status == ReadinessStatus.BLOCKED else 4
-    for state_key in ("proposal", "proposal_key", "benchmark_result", "benchmark_context", "benchmark_choice", "poc_choice", "evaluation_fields", "analysis_fields"):
+    for state_key in ("benchmark_result", "benchmark_context", "benchmark_choice", "evaluation_fields", "analysis_fields"):
         st.session_state.pop(state_key, None)
 
 saved_review = st.session_state.get("expert_review") if st.session_state.get("expert_review_context") == review_context else None
@@ -353,7 +352,8 @@ assessment = ReadinessAssessment(
     assessment.deployment_questions, assessment.target_summary,
 )
 assessments[assessment_choice.key] = assessment
-st.subheader(f"{STATUS_ICON[review_result.status]} {review_result.headline}")
+if review_result.headline:
+    st.subheader(f"{STATUS_ICON[review_result.status]} {review_result.headline}")
 for reason in review_result.reasons:
     st.write(f"- {reason}")
 if review_result.next_steps:
@@ -475,13 +475,10 @@ if not configured_token:
     st.info("Evaluation is unavailable until TABPFN_TOKEN is configured in the project's .env file. Restart Streamlit after adding it.")
 expected_context = (dataset_name, benchmark_case.key, tuple(selected_features), runner_case.task_type, explain, generated_rows, "shap-v1")
 if st.session_state.get("evaluation_config") != expected_context:
-    st.session_state.pop("proposal", None)
-    st.session_state.pop("proposal_key", None)
     st.session_state["evaluation_config"] = expected_context
 if st.button("Run TabPFN evaluation", type="primary", disabled=not benchmark_eligible or not consent or not configured_token):
     st.session_state.pop("benchmark_result", None)
     st.session_state.pop("benchmark_context", None)
-    st.session_state.pop("proposal", None)
     with st.spinner("Evaluating with TabPFN and preparing the result charts…"):
         try:
             if supervised:
@@ -503,16 +500,46 @@ if benchmark_result:
         render_analysis(benchmark_result)
 
 st.divider()
-continue_to(6, 'Continue to POC plan' if benchmark_result else 'Continue to POC plan without benchmark results')
-st.header("6 · Generate a POC plan")
-chosen = st.selectbox("Select an opportunity", opportunities, format_func=lambda x: x.name, key="poc_choice")
-if st.button("Generate POC proposal", type="primary"):
-    matching_benchmark = benchmark_result if chosen.key == benchmark_case.key else None
-    st.session_state["proposal"] = generate_poc_markdown(dataset_name, profile, context, chosen, assessments[chosen.key], benchmark=matching_benchmark)
-    st.session_state["proposal_key"] = chosen.key
-proposal = st.session_state.get("proposal")
-if proposal:
-    st.markdown(proposal)
-    st.download_button("Download Markdown proposal", proposal, file_name=f"{st.session_state.get('proposal_key', 'use-case')}-poc-proposal.md", mime="text/markdown")
+continue_to(6, 'If interested, see official next steps')
+st.header("6. Interested ? Possible next steps")
+st.write("Use these official resources to learn more, try TabPFN directly, inspect implementation examples, or discuss a real use case with Prior Labs.")
+
+capability_docs = {
+    "classification": "https://docs.priorlabs.ai/capabilities/classification",
+    "regression": "https://docs.priorlabs.ai/capabilities/regression",
+    "forecasting": "https://docs.priorlabs.ai/capabilities/forecasting",
+    "interpretability": "https://docs.priorlabs.ai/capabilities/interpretability",
+    "anomaly_detection": "https://docs.priorlabs.ai/capabilities/anomaly-detection",
+    "synthetic_generation": "https://docs.priorlabs.ai/capabilities/data-generation",
+    "imputation": "https://github.com/PriorLabs/tabpfn-extensions",
+}
+route = confirmed.route
+with st.container(border=True):
+    st.subheader("Start with your recommended capability")
+    st.write(f"Your confirmed approach is **{ROUTE_LABELS[route]}**. Read the official guide to understand the supported workflow and current implementation options.")
+    st.link_button("Open the recommended capability guide ↗", capability_docs[route], type="primary")
+
+learn, try_it, examples = st.columns(3)
+with learn:
+    st.subheader("Learn")
+    st.write("Understand TabPFN and follow the official getting-started guide.")
+    st.link_button("Documentation overview ↗", "https://docs.priorlabs.ai/overview")
+    st.link_button("Quickstart ↗", "https://docs.priorlabs.ai/quickstart")
+with try_it:
+    st.subheader("Try")
+    st.write("Manage API access or follow the official benchmarking walkthrough.")
+    st.link_button("Manage API keys ↗", "https://platform.priorlabs.ai/account/api-keys")
+    st.link_button("Benchmarking guide ↗", "https://docs.priorlabs.ai/benchmarking")
+with examples:
+    st.subheader("Explore examples")
+    st.write("Review the maintained client and extension projects.")
+    st.link_button("TabPFN client on GitHub ↗", "https://github.com/PriorLabs/tabpfn-client")
+    st.link_button("TabPFN extensions on GitHub ↗", "https://github.com/PriorLabs/tabpfn-extensions")
+
+st.subheader("Talk to Prior Labs or the community")
+contact, community = st.columns(2)
+contact.link_button("Book a demo with Prior Labs ↗", "https://priorlabs.ai/contact", type="primary")
+community.link_button("Join the TabPFN Discord ↗", "https://discord.com/invite/VJRuU3bSxt")
+st.caption("These links open official Prior Labs documentation, platforms, repositories, and community channels in a new tab.")
 
 st.caption("Unofficial prototype for demonstration purposes. Not affiliated with or endorsed by Prior Labs or SAP.")

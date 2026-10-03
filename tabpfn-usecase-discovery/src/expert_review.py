@@ -102,7 +102,7 @@ def evaluate_expert_review(
     if reasons:
         return ExpertReviewResult(
             ReadinessStatus.INVESTIGATE,
-            "You can continue, with a few points to validate",
+            "",
             list(dict.fromkeys(reasons)),
             list(dict.fromkeys(next_steps)),
         )
