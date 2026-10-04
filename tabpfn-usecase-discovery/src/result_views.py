@@ -25,6 +25,11 @@ def render_benchmark(result: BenchmarkResult, *, forecasting=False):
     st.caption("↑ Higher is better · ↓ Lower is better. All models use the same unseen test records.")
     if "classification" in result.plan.task_type:
         render_confusion_matrix(result)
+    elif result.plan.task_type == "regression":
+        figure = regression_scatter_figure(result)
+        if figure is not None:
+            _chart(figure)
+            st.caption("Each point is one unseen test record. Points on the dashed line are perfect predictions; points above it are overestimates, and points below it are underestimates. Hover over a point to inspect its values.")
     render_explanations(result)
     with st.expander("How to interpret this evaluation"):
         if "classification" in result.plan.task_type:
@@ -32,10 +37,38 @@ def render_benchmark(result: BenchmarkResult, *, forecasting=False):
             st.write("The confusion matrix counts TabPFN predictions on unseen test records. Rows show actual outcomes; columns show predicted outcomes. Diagonal cells are correct predictions, and other cells are mistakes.")
         else:
             st.write("MAE is the typical error in the outcome's units. RMSE gives larger mistakes more weight. R² compares the estimates with predicting the average; it can be negative when the model performs poorly.")
+            st.write("The scatter plot compares actual values with TabPFN predictions for all unseen test records. Points closer to the reference line have smaller errors.")
         if forecasting:
             st.write("The latest dates are held out together. This is a historical forecast test using supplied inputs; those inputs must also be available when making real forecasts.")
         for note in result.notes:
             st.write(note)
+
+
+def regression_scatter_figure(result: BenchmarkResult):
+    records = result.predictions
+    if records is None or records.empty:
+        return None
+    actual = records["Observed"].astype(float).tolist()
+    predicted = records["Predicted"].astype(float).tolist()
+    record_ids = records["Record"].astype(str).tolist() if "Record" in records else records.index.astype(str).tolist()
+    lower, upper = min(actual + predicted), max(actual + predicted)
+    padding = (upper - lower) * .05 if upper != lower else max(abs(lower) * .05, 1)
+    bounds = [lower - padding, upper + padding]
+    figure = go.Figure(go.Scatter(
+        x=actual, y=predicted, customdata=record_ids, mode="markers", name="TabPFN predictions",
+        marker=dict(color="#5271e6", size=7, opacity=.6),
+        hovertemplate="Record: %{customdata}<br>Actual: %{x:.3f}<br>Predicted: %{y:.3f}<extra></extra>",
+    ))
+    figure.add_trace(go.Scatter(
+        x=bounds, y=bounds, mode="lines", name="Perfect prediction",
+        line=dict(color="#8593a8", dash="dash"), hoverinfo="skip",
+    ))
+    figure.update_layout(
+        title="TabPFN: actual vs predicted values", showlegend=True,
+        xaxis=dict(title=f"Actual {result.plan.target}", range=bounds),
+        yaxis=dict(title=f"Predicted {result.plan.target}", range=bounds),
+    )
+    return figure
 
 
 def confusion_matrix_figure(result: BenchmarkResult):

@@ -13,7 +13,7 @@ from src.analysis import run_tabpfn_analysis
 from src.benchmark import BenchmarkError, prepare_benchmark, run_tabpfn_benchmark
 from src.data_profiler import profile_dataset
 from src.schemas import BenchmarkPlan, BenchmarkResult, SupportLevel, UseCase
-from src.result_views import confusion_matrix_figure
+from src.result_views import confusion_matrix_figure, regression_scatter_figure
 from src.objective_refinement import RefinedObjective
 
 
@@ -153,16 +153,22 @@ def test_result_views_render_measured_artifacts(kind, fake_client, monkeypatch):
     monkeypatch.setitem(sys.modules, "evaluation_test_artifact", module)
     app = AppTest.from_string("from evaluation_test_artifact import result\nfrom src.result_views import render_analysis, render_benchmark\n" + view).run(timeout=20)
     assert not app.exception
-    assert len(app.get("plotly_chart")) <= (2 if kind == "classification" else 1)
+    assert len(app.get("plotly_chart")) <= (2 if kind in {"classification", "regression", "forecasting"} else 1)
     assert len(app.dataframe) == 1
     if kind in {"classification", "regression", "forecasting"}:
-        assert len(app.get("plotly_chart")) == (2 if kind == "classification" else 1)
+        assert len(app.get("plotly_chart")) == 2
         chart = json.loads(app.get("plotly_chart")[-1].proto.spec)
         assert chart["data"][0]["type"] == "waterfall"
         if kind == "classification":
             matrix = json.loads(app.get("plotly_chart")[0].proto.spec)
             assert matrix["data"][0]["type"] == "heatmap"
             assert sum(sum(row) for row in matrix["data"][0]["z"]) == result.plan.test_rows
+        else:
+            scatter = json.loads(app.get("plotly_chart")[0].proto.spec)
+            assert scatter["data"][0]["type"] == "scatter"
+            assert scatter["data"][0]["mode"] == "markers"
+            assert len(scatter["data"][0]["x"]) == result.plan.test_rows
+            assert scatter["data"][1]["x"] == scatter["data"][1]["y"]
         assert "Measure to compare" not in [select.label for select in app.selectbox]
         assert "Inspect an individual result" in [select.label for select in app.selectbox]
         assert "Download prediction explanations" not in [button.label for button in app.get("download_button")]
@@ -191,6 +197,23 @@ def test_confusion_matrix_counts_and_class_order(target, actual, predicted, clas
     assert figure.layout.xaxis.title.text == "Predicted outcome"
     assert figure.layout.yaxis.title.text == "Actual outcome"
     assert sum(sum(row) for row in figure.data[0].z) == len(actual)
+
+
+@pytest.mark.parametrize("actual,predicted", [([1, 2, 2, 4], [1.5, 1, 3, 5]), ([0, 0], [0, 0]), ([-5, -1], [-4, -2])])
+def test_regression_scatter_retains_all_records_and_identity_line(actual, predicted):
+    result = BenchmarkResult(
+        BenchmarkPlan("units_sold", "regression", ["input"], {}, "Holdout", 20, len(actual)),
+        {}, [], predictions=pd.DataFrame({"Record": [str(i) for i in range(len(actual))],
+                                        "Observed": actual, "Predicted": predicted}),
+    )
+    figure = regression_scatter_figure(result)
+    assert list(figure.data[0].x) == actual
+    assert list(figure.data[0].y) == predicted
+    assert len(figure.data[0].customdata) == len(actual)
+    assert figure.data[1].x == figure.data[1].y
+    assert figure.layout.xaxis.range == figure.layout.yaxis.range
+    assert figure.layout.xaxis.range[0] < min(actual + predicted)
+    assert figure.layout.xaxis.range[1] > max(actual + predicted)
 
 
 def test_multiclass_shap_explains_each_records_predicted_class(fake_client):
