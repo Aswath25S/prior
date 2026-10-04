@@ -34,6 +34,14 @@ def test_retail_discovery_is_regression_and_temporal_warning():
     assert any("chronological" in warning.lower() for warning in assessment.leakage_warnings)
 
 
+def test_retail_daily_sales_objective_is_regression_without_forecasting():
+    df = retail(days=40)
+    cases = discover_use_cases(df, profile_dataset(df), context("Retail", "Estimate daily units sold using opening-time conditions", "units_sold"))
+    demand = next(c for c in cases if c.key == "demand")
+    assert demand.task_type == "regression"
+    assert not demand.forecasting
+
+
 def test_no_target_is_honest_data_gap():
     df = manufacturing(rows=300).drop(columns=["failure_next_30_days", "failure_resolution_days"])
     cases = discover_use_cases(df, profile_dataset(df), context("Manufacturing", "reduce machine downtime"))

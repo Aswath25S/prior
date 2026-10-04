@@ -19,7 +19,7 @@ CATALOG = [
         "key": "demand", "name": "Product demand prediction",
         "industries": {"retail"}, "objective": ("demand", "inventory", "sales", "stock", "forecast"),
         "targets": ("units_sold", "demand", "sales_quantity"), "features": ("price", "promotion", "holiday", "store", "product", "date"),
-        "statement": "Estimate future product demand at the relevant product and location level.",
+        "statement": "Estimate product sales over a defined period using available store, product, and trading conditions.",
         "rationale": "Demand estimates can inform replenishment, allocation, and inventory decisions.", "forecasting": True,
     },
     {
@@ -116,12 +116,13 @@ def discover_use_cases(df: pd.DataFrame, profile: DatasetProfile, context: Busin
         uncertainties = ["This is a heuristic candidate, not a claim that the organization has this business problem."]
         if not target:
             uncertainties.append("No defensible historical outcome column was found; outcome data would be required.")
-        if item.get("forecasting"):
+        forecasting = bool(item.get("forecasting")) and any(term in objective for term in ("forecast", "time series", "future dates"))
+        if forecasting:
             uncertainties.append("Forecasting requires chronological validation and confirmation that planned features are known in advance.")
         candidates.append((score, UseCase(
             key=item["key"], name=item["name"], problem_statement=item["statement"],
             target=target, task_type=task, support=support, business_rationale=item["rationale"],
-            evidence=evidence, uncertainties=uncertainties, forecasting=bool(item.get("forecasting")),
+            evidence=evidence, uncertainties=uncertainties, forecasting=forecasting,
             objective_match=bool(objective_hits),
         )))
 

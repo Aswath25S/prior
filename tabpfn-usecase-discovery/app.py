@@ -36,9 +36,13 @@ SAMPLE_DESCRIPTIONS = {
         "field demonstrate data-quality and leakage checks."
     ),
     "Retail — product demand": (
-        "Each row represents a synthetic product sold at one store on one day. Sales vary with price, "
-        "promotions, holidays, seasonal patterns, and store/product differences. The proposed outcome is "
-        "units sold; the dated history demonstrates why demand forecasting needs chronological evaluation."
+        "Each row represents one product at one store over a full trading day, from opening to closing. "
+        "units_sold is the actual number of units sold during that day. Inputs describe conditions known "
+        "before opening: planned selling price, discount percentage, expected store visitors, opening stock, "
+        "the prior seven-day sales average, and the prior four-week same-weekday sales average. Store and "
+        "product IDs identify the item and location; the date identifies the trading day. Sales history comes "
+        "from completed prior days. This is a daily sales regression example. Sales can be limited by "
+        "stock availability, so units_sold does not measure all unmet customer demand."
     ),
 }
 SAMPLE_GENERATION_OBJECTIVES = {
@@ -47,8 +51,8 @@ SAMPLE_GENERATION_OBJECTIVES = {
         "30 days can be identified early enough to prioritize preventive inspection and maintenance."
     ),
     "Retail — product demand": (
-        "Create dated store-and-product sales history for exploring whether future unit demand can be "
-        "forecast from price, promotions, holidays, seasonality, and store and product differences to support inventory planning."
+        "Estimate how many units of a product a store will sell during one full trading day using "
+        "information available before opening, to support stock allocation and daily operational planning."
     ),
 }
 

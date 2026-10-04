@@ -105,7 +105,7 @@ def supervised_result(kind):
     else:
         df = retail(days=20, stores=2, products=2)
         case = UseCase("test", "Demand", "Estimate demand", "units_sold", "regression", SupportLevel.SUPPORTED, "Inventory", forecasting=kind == "forecasting")
-        features = ["store_id", "product_id", "date", "price", "promotion_flag"]
+        features = ["store_id", "product_id", "date", "price", "discount_pct"]
     return df, profile_dataset(df), case, features
 
 
@@ -238,7 +238,7 @@ def test_evaluation_runs_without_expert_questionnaire_for_each_route(route, fake
     monkeypatch.setenv("TABPFN_TOKEN", "test")
     targetless = route in {"imputation", "anomaly_detection", "synthetic_generation"}
     target = None if targetless else "units_sold" if route == "forecasting" else "operating_load" if route == "regression" else "failure_next_30_days"
-    columns = ["store_id", "product_id", "date", "price", "promotion_flag"] if route == "forecasting" else ["temperature_c", "vibration_level", "maintenance_count_90d"]
+    columns = ["store_id", "product_id", "date", "price", "discount_pct"] if route == "forecasting" else ["temperature_c", "vibration_level", "maintenance_count_90d"]
     brief = RefinedObjective(objective="Evaluate the proposed operational analysis", business_decision="Support operational review", route=route,
                              target=target, relevant_columns=columns, rationale="Matches the stated goal", deliverable="Reviewable outputs",
                              success_criteria=[], questions=[])

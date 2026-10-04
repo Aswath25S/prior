@@ -38,28 +38,72 @@ def manufacturing(seed: int = 42, rows: int = 1500) -> pd.DataFrame:
 
 
 def retail(seed: int = 84, days: int = 240, stores: int = 4, products: int = 5) -> pd.DataFrame:
+    """Opening-time inputs to predict actual sales over one full trading day.
+
+    History is simulated for 28 days before the exported period. Lagged fields
+    use completed prior days only; opening stock is set before today's sales.
+    """
     rng = np.random.default_rng(seed)
     records: list[dict[str, object]] = []
-    dates = pd.date_range("2025-01-01", periods=days, freq="D")
-    product_base = rng.uniform(18, 55, products)
-    product_price = rng.uniform(8, 40, products)
-    store_effect = rng.normal(0, 4, stores)
-    for day_idx, date in enumerate(dates):
-        seasonal = 6 * np.sin(2 * np.pi * day_idx / 7) + 5 * np.sin(2 * np.pi * day_idx / 365)
-        holiday = int((date.month == 12 and date.day >= 20) or (date.month == 7 and date.day == 4))
+    regular_price = rng.uniform(3, 25, products).round(2)
+    product_base = rng.uniform(15, 55, products)
+    price_elasticity = rng.uniform(1.0, 2.2, products)
+    shelf_space = rng.integers(2, 7, products)
+    store_area = rng.integers(450, 1800, stores)
+    catchment = rng.integers(4000, 25000, stores)
+    usual_visitors = 180 + .23 * store_area + .006 * catchment
+    history = {(s, p): [] for s in range(stores) for p in range(products)}
+    demand_state = np.zeros((stores, products))
+    # Warm-up supplies real simulated preceding observations for every exported lag.
+    all_dates = pd.date_range("2024-12-04", periods=days + 28, freq="D")
+    for day_idx, date in enumerate(all_dates):
+        weekend = int(date.dayofweek >= 5)
+        holiday = int((date.month, date.day) in {(1, 1), (7, 4), (12, 25)})
+        payday = int(date.day <= 3 or date.day >= 25)
+        seasonal = 1 + .08 * np.sin(2 * np.pi * date.dayofyear / 365)
         for store in range(stores):
+            opening_hours = 8 if holiday else 10 if date.dayofweek == 6 else 12
+            # A planning estimate available before opening, rather than actual footfall.
+            expected_visitors = int(round(usual_visitors[store] * (1 + .25 * weekend + .08 * payday)
+                                         * seasonal * opening_hours / 12))
             for product in range(products):
-                promo = int(rng.random() < 0.13)
-                price = product_price[product] * (0.82 if promo else 1.0) * rng.normal(1, 0.025)
-                expected = product_base[product] + store_effect[store] + seasonal + 13 * promo + 8 * holiday - 0.75 * (price - product_price[product])
-                sold = max(0, int(rng.normal(max(2, expected), 6)))
-                inventory = max(sold, int(rng.normal(85, 22)))
-                records.append({"store_id": f"S-{store + 1:02d}", "product_id": f"P-{product + 1:03d}", "date": date.date().isoformat(),
-                                "price": round(price, 2), "promotion_flag": promo, "holiday_flag": holiday,
-                                "inventory_level": inventory, "units_sold": sold})
-    frame = pd.DataFrame(records)
-    frame.loc[rng.random(len(frame)) < 0.01, "price"] = np.nan
-    return frame
+                past = history[store, product]
+                mean_7d = float(np.mean(past[-7:])) if past else product_base[product]
+                weekday_mean = float(np.mean(past[-28::7])) if len(past) >= 28 else mean_7d
+                promo = int(rng.random() < .18)
+                discount = int(rng.choice([10, 15, 20, 25])) if promo else 0
+                price = round(regular_price[product] * (1 - discount / 100), 2)
+                competitor_price = round(regular_price[product] * rng.uniform(.88, 1.12), 2)
+                display = int(promo and rng.random() < .65)
+                campaign = int(rng.random() < (.45 if promo else .06))
+                shelf_facings = int(shelf_space[product] + 2 * display)
+                # Stock is chosen using past sales and a rough planned uplift, not today's outcome.
+                stock_plan = max(5, mean_7d * (1.35 + discount / 100 + .2 * display))
+                opening_stock = max(0, int(rng.normal(stock_plan, max(3, stock_plan * .18))))
+                if rng.random() < .06:
+                    opening_stock = int(opening_stock * rng.uniform(.15, .6))
+                expected = product_base[product] * expected_visitors / 450
+                expected *= (regular_price[product] / price) ** price_elasticity[product]
+                expected *= 1 + .45 * (competitor_price / price - 1)
+                expected *= 1 + .18 * display + .12 * campaign
+                expected *= 1 + .035 * (shelf_facings - 3)
+                # Temporary local demand and ordinary customer variability remain unobserved.
+                demand_state[store, product] = .7 * demand_state[store, product] + rng.normal(0, .07)
+                expected *= np.exp(demand_state[store, product])
+                demand = int(rng.poisson(rng.gamma(35, max(.1, expected) / 35)))
+                sold = min(opening_stock, demand)
+                if day_idx >= 28:
+                    records.append({
+                        "store_id": f"S-{store + 1:02d}", "product_id": f"P-{product + 1:03d}",
+                        "date": date.date().isoformat(), "price": price, "discount_pct": discount,
+                        "expected_store_visitors": expected_visitors,
+                        "opening_stock_units": opening_stock,
+                        "avg_units_sold_previous_7_days": round(mean_7d, 1),
+                        "avg_units_sold_same_weekday_previous_4_weeks": round(weekday_mean, 1),
+                        "units_sold": sold,
+                    })
+                past.append(sold)
+    return pd.DataFrame(records)
 
 
 def main() -> None:

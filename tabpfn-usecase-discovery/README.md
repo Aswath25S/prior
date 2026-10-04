@@ -75,9 +75,11 @@ Each example shows a data description and the objective behind its generation. E
 | Example | Intended exploration |
 | --- | --- |
 | Manufacturing — equipment failure | Classify 30-day failure risk to prioritize maintenance |
-| Retail — product demand | Forecast dated store/product demand for inventory planning |
+| Retail — product demand | Estimate units sold over one full trading day using conditions known before opening |
 
 The manufacturing example contains 1,500 machine observations; retail contains 4,800 daily store/product records. Both are generated locally with fixed random seeds; the generation process does not call OpenAI or TabPFN.
+
+Retail covers January 1–August 28, 2025 (240 days, 4 stores, 5 products), with 10 columns total: `store_id`, `product_id`, `date`, `price`, `discount_pct`, `expected_store_visitors`, `opening_stock_units`, `avg_units_sold_previous_7_days`, `avg_units_sold_same_weekday_previous_4_weeks`, and `units_sold`. The target counts actual sales from opening to closing on the row's date. The intended capability is tabular regression for a single day's sales. A 28-day simulated warm-up supplies prior history; every lag excludes the current day. Visitor counts are planning estimates, not observed same-day footfall. Opening stock is set before sales and caps sales, so the target represents fulfilled sales rather than unconstrained demand. The simulator retains additional influences, such as competitor prices, displays, and customer variability, to keep the compact example imperfect. These are illustrative simulated relationships rather than parameters calibrated from real retail observations.
 
 ## Heuristic boundaries
 
