@@ -66,7 +66,7 @@ pytest -q
 - `src/analysis.py`: bounded conditional TabPFN workflows for imputation, anomaly ranking, and synthetic sampling.
 - `src/result_views.py`: model comparison tables, individual SHAP waterfalls, and downloads.
 - `src/shap_explanations.py`: exact or permutation-estimated empirical interventional Shapley values for the API model.
-- `scripts/generate_sample_data.py`: reproducible synthetic equipment-failure and retail-demand examples.
+- `scripts/generate_sample_data.py`: reproducible synthetic equipment-failure, retail-demand, and financial payment time-series examples.
 
 ## Built-in example datasets
 
@@ -76,6 +76,7 @@ Each example shows a data description and the objective behind its generation. E
 | --- | --- |
 | Manufacturing — equipment failure | Classify 30-day failure risk to prioritize maintenance |
 | Retail — product demand | Estimate units sold over one full trading day using conditions known before opening |
+| Financial Services — daily card payments | Forecast the next day's payment count for processing capacity and staffing |
 
 The manufacturing example contains 1,500 machine observations; retail contains 4,800 daily store/product records. Both are generated locally with fixed random seeds; the generation process does not call OpenAI or TabPFN.
 
@@ -83,13 +84,15 @@ Retail covers January 1–August 28, 2025 (240 days, 4 stores, 5 products), with
 
 ## Heuristic boundaries
 
+The financial example contains 731 daily records for one synthetic payment processor, covering January 1, 2024–December 31, 2025, with 10 columns. The target `transaction_count` measures payments processed during the full calendar day on the row's date. Inputs are weekday, month-end/payday-period indicators, a planned campaign, previous-day count, prior 7/28-day averages, and the previous week's same-weekday count. A 28-day warm-up supplies prior history. These are simulated financial operating patterns rather than real company observations. Forecasting evaluation holds out the latest 20% of dates. It tests rolling one-day-ahead predictions: each test day's inputs include earlier completed test days when available. It does not evaluate a fixed-origin forecast of the entire holdout horizon.
+
 Step 2 collects industry, a business objective, information about the data, and an optional target. Discovery uses explicit rules to match objectives and data descriptions to prediction, outlier detection, missing-data recovery, predictive factor analysis, or synthetic generation. Prioritization considers objective alignment, data feasibility, and implementation complexity; no business-value ratings are inferred.
 
 All evaluations use the installed TabPFN API client; no GPU or second virtual environment is needed. The initial evaluation methods are explicit:
 
 - Classification: one table compares traditional models and TabPFN across accuracy, balanced accuracy, precision, recall, F1, and applicable AUC scores. A TabPFN confusion matrix shows actual versus predicted outcome counts on unseen test records for binary and multiclass tasks. The equipment-failure example labels missed failures and false alarms.
-- Regression: one comparison table shows MAE, RMSE, and R². An actual-versus-predicted scatter plot shows every unseen test record's TabPFN prediction with a perfect-prediction reference line. The plot also appears for numeric forecasting and interpretation evaluations. Model prediction ranges remain available in the measured artifacts.
-- Forecasting: whole-date chronological holdout with the same numeric comparison table. This tests historical supplied inputs; it does not implement multi-step future forecasting or generate future covariates.
+- Regression: one comparison table shows MAE, RMSE, and R². An actual-versus-predicted scatter plot shows every unseen test record's TabPFN prediction with a perfect-prediction reference line. The plot also appears for numeric interpretation evaluations. Model prediction ranges remain available in the measured artifacts.
+- Forecasting: whole-date chronological holdout with the same numeric comparison table. A time-series line chart shows actual and predicted values on each test date; panel datasets have a series selector to keep stores/products separate. This tests historical supplied inputs; it does not implement multi-step future forecasting or generate future covariates.
 - Interpretation: retains one “Inspect an individual result” SHAP waterfall and expandable guidance. Empirical interventional SHAP uses eight sampled learning records as the reference background and explains up to five unseen records with at most 12 fields. Up to six fields use the exact Shapley formula for that finite background; larger feature sets use 16 sampled permutations. Contributions add to the difference between the reference output and the record's output, including nonlinear interactions. Binary analyses explain the less common training outcome's probability; multiclass analyses explain each record's predicted class probability; numeric analyses explain the estimated value. These require additional API requests. Results depend on the sampled background, and mixed-field combinations may be unrealistic for correlated fields. SHAP values describe model behavior, not causal effects. The backend can also compute global permutation importance, but the simplified UI skips these extra calls.
 - Missing-value recovery: holds out 20% of rows, masks known cells one field at a time, compares recovery with training-only median/mode, and fills real gaps in held-out records. Downloads preserve original missing flags. Artificial masking does not establish accuracy for actual missing cells.
 - Unusual-record ranking: predicts each field from the others and aggregates numeric scaled residual/category probability surprise percentiles. Shows a comparison table with Isolation Forest and one record-level field surprise chart. Alert-list agreement is not accuracy; precision/recall require review labels.

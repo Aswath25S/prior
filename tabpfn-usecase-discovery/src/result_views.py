@@ -25,6 +25,8 @@ def render_benchmark(result: BenchmarkResult, *, forecasting=False):
     st.caption("↑ Higher is better · ↓ Lower is better. All models use the same unseen test records.")
     if "classification" in result.plan.task_type:
         render_confusion_matrix(result)
+    elif forecasting:
+        render_forecast_series(result)
     elif result.plan.task_type == "regression":
         figure = regression_scatter_figure(result)
         if figure is not None:
@@ -37,11 +39,55 @@ def render_benchmark(result: BenchmarkResult, *, forecasting=False):
             st.write("The confusion matrix counts TabPFN predictions on unseen test records. Rows show actual outcomes; columns show predicted outcomes. Diagonal cells are correct predictions, and other cells are mistakes.")
         else:
             st.write("MAE is the typical error in the outcome's units. RMSE gives larger mistakes more weight. R² compares the estimates with predicting the average; it can be negative when the model performs poorly.")
-            st.write("The scatter plot compares actual values with TabPFN predictions for all unseen test records. Points closer to the reference line have smaller errors.")
+            if forecasting:
+                st.write("The time-series plot aligns actual values and TabPFN predictions by date. Gaps between the lines show prediction errors; compare whether peaks, dips, and trends line up.")
+            else:
+                st.write("The scatter plot compares actual values with TabPFN predictions for all unseen test records. Points closer to the reference line have smaller errors.")
         if forecasting:
             st.write("The latest dates are held out together. This is a historical forecast test using supplied inputs; those inputs must also be available when making real forecasts.")
         for note in result.notes:
             st.write(note)
+
+
+def forecast_series_figure(result: BenchmarkResult, series=None):
+    records = result.predictions
+    if records is None or records.empty or "Date" not in records:
+        return None
+    if "Series" in records:
+        series = records["Series"].iloc[0] if series is None else series
+        records = records.loc[records["Series"] == series]
+    if records.empty:
+        return None
+    records = records.copy()
+    records["Date"] = pd.to_datetime(records["Date"])
+    records = records.sort_values("Date", kind="stable")
+    figure = go.Figure()
+    for field, name, color, dash in [
+        ("Observed", "Actual", "#5271e6", "solid"),
+        ("Predicted", "TabPFN prediction", "#ee9b45", "dash"),
+    ]:
+        figure.add_trace(go.Scatter(
+            x=records["Date"].tolist(), y=records[field].astype(float).tolist(),
+            mode="lines+markers", name=name,
+            line=dict(color=color, dash=dash), marker=dict(size=4),
+            hovertemplate="%{y:.3f}<extra>%{fullData.name}</extra>",
+        ))
+    figure.update_layout(
+        title="Actual vs predicted over time", hovermode="x unified",
+        xaxis=dict(title="Test date", type="date"), yaxis_title=result.plan.target,
+    )
+    return figure
+
+
+def render_forecast_series(result: BenchmarkResult):
+    records = result.predictions
+    series = None
+    if records is not None and "Series" in records and records["Series"].nunique() > 1:
+        series = st.selectbox("Time series to view", records["Series"].unique(), key="forecast_series")
+    figure = forecast_series_figure(result, series)
+    if figure is not None:
+        _chart(figure)
+        st.caption("Actual values and TabPFN predictions for every test date in the displayed series. Hover over a date to compare the values.")
 
 
 def regression_scatter_figure(result: BenchmarkResult):

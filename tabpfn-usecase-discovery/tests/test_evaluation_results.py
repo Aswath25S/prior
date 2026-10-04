@@ -13,7 +13,7 @@ from src.analysis import run_tabpfn_analysis
 from src.benchmark import BenchmarkError, prepare_benchmark, run_tabpfn_benchmark
 from src.data_profiler import profile_dataset
 from src.schemas import BenchmarkPlan, BenchmarkResult, SupportLevel, UseCase
-from src.result_views import confusion_matrix_figure, regression_scatter_figure
+from src.result_views import confusion_matrix_figure, regression_scatter_figure, forecast_series_figure
 from src.objective_refinement import RefinedObjective
 
 
@@ -163,6 +163,13 @@ def test_result_views_render_measured_artifacts(kind, fake_client, monkeypatch):
             matrix = json.loads(app.get("plotly_chart")[0].proto.spec)
             assert matrix["data"][0]["type"] == "heatmap"
             assert sum(sum(row) for row in matrix["data"][0]["z"]) == result.plan.test_rows
+        elif kind == "forecasting":
+            timeline = json.loads(app.get("plotly_chart")[0].proto.spec)
+            assert len(timeline["data"]) == 2
+            assert all(trace["mode"] == "lines+markers" for trace in timeline["data"])
+            assert timeline["layout"]["xaxis"]["type"] == "date"
+            assert timeline["data"][0]["x"] == timeline["data"][1]["x"]
+            assert len(timeline["data"][0]["x"]) == result.predictions.groupby("Series").size().iloc[0]
         else:
             scatter = json.loads(app.get("plotly_chart")[0].proto.spec)
             assert scatter["data"][0]["type"] == "scatter"
@@ -214,6 +221,25 @@ def test_regression_scatter_retains_all_records_and_identity_line(actual, predic
     assert figure.layout.xaxis.range == figure.layout.yaxis.range
     assert figure.layout.xaxis.range[0] < min(actual + predicted)
     assert figure.layout.xaxis.range[1] > max(actual + predicted)
+
+
+def test_forecast_plot_sorts_dates_and_keeps_individual_series_separate():
+    records = pd.DataFrame({
+        "Date": ["2025-01-03", "2025-01-01", "2025-01-02", "2025-01-01"],
+        "Observed": [30, 10, 20, 100], "Predicted": [33, 11, 22, 110],
+        "Series": ["A", "A", "A", "B"],
+    })
+    result = BenchmarkResult(BenchmarkPlan("transaction_count", "regression", ["date"], {}, "Chronological", 10, 4),
+                             {}, [], predictions=records)
+    figure = forecast_series_figure(result, "A")
+    assert list(figure.data[0].y) == [10, 20, 30]
+    assert list(figure.data[1].y) == [11, 22, 33]
+    assert list(figure.data[0].x) == list(pd.date_range("2025-01-01", periods=3))
+    assert figure.data[0].x == figure.data[1].x
+    assert list(forecast_series_figure(result, "B").data[0].y) == [100]
+    single = records.drop(columns="Series")
+    result.predictions = single
+    assert len(forecast_series_figure(result).data[0].y) == 4
 
 
 def test_multiclass_shap_explains_each_records_predicted_class(fake_client):

@@ -9,6 +9,14 @@ from .schemas import BusinessContext, DatasetProfile, SupportLevel, UseCase
 
 CATALOG = [
     {
+        "key": "payment_volume", "name": "Daily payment-volume forecasting",
+        "industries": {"financial services"}, "objective": ("payment", "transaction", "capacity", "staffing", "forecast"),
+        "targets": ("transaction_count", "payment_count"), "features": ("transaction", "weekday", "campaign", "payday", "date"),
+        "statement": "Forecast the next day's payment count from completed historical days and known calendar inputs.",
+        "rationale": "Daily volume estimates can support payment-processing capacity and staffing plans.",
+        "forecasting": True,
+    },
+    {
         "key": "equipment_failure", "name": "Equipment failure prediction",
         "industries": {"manufacturing"}, "objective": ("failure", "downtime", "maintenance", "machine", "equipment"),
         "targets": ("failure", "breakdown", "fault"), "features": ("vibration", "temperature", "operating", "maintenance", "machine"),

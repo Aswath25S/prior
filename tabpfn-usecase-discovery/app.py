@@ -27,8 +27,18 @@ load_dotenv(ROOT / ".env", override=False)
 SAMPLES = {
     "Manufacturing — equipment failure": ROOT / "data/samples/synthetic_manufacturing.csv",
     "Retail — product demand": ROOT / "data/samples/synthetic_retail.csv",
+    "Financial Services — daily card payments (time series)": ROOT / "data/samples/synthetic_financial_payments.csv",
 }
 SAMPLE_DESCRIPTIONS = {
+    "Financial Services — daily card payments (time series)": (
+        "Each row represents one calendar day for a synthetic card-payment processor, covering "
+        "January 1, 2024 through December 31, 2025. transaction_count is the number of payments "
+        "processed during that full day. The 10 columns include the date, weekday, month-end and "
+        "payday-period indicators, a planned campaign, and transaction history from completed prior days. "
+        "The history contains trend, weekly and annual patterns, and ordinary day-to-day variation. "
+        "Evaluation predicts each test day using history available before that day and holds out the "
+        "latest dates."
+    ),
     "Manufacturing — equipment failure": (
         "Each row represents a synthetic machine observation, with equipment age, operating hours, "
         "temperature, vibration, maintenance history, and load. The outcome records whether the machine "
@@ -46,6 +56,10 @@ SAMPLE_DESCRIPTIONS = {
     ),
 }
 SAMPLE_GENERATION_OBJECTIVES = {
+    "Financial Services — daily card payments (time series)": (
+        "Forecast the next day's card-payment transaction count using prior transaction history "
+        "and known calendar and campaign information, to support payment-processing capacity and staffing."
+    ),
     "Manufacturing — equipment failure": (
         "Create realistic machine history for exploring whether equipment likely to fail within the next "
         "30 days can be identified early enough to prioritize preventive inspection and maintenance."
@@ -184,7 +198,7 @@ st.header("2 · Add business context and discover opportunities")
 left, right = st.columns(2)
 with left:
     industry = st.selectbox("Industry", ["Manufacturing", "Financial Services", "Retail", "Healthcare", "Other"],
-                            index=0 if "Manufacturing" in dataset_name else 2 if "Retail" in dataset_name else 4)
+                            index=0 if "Manufacturing" in dataset_name else 1 if "Financial Services" in dataset_name else 2 if "Retail" in dataset_name else 4)
     objective = st.text_area("Business objective", value="", placeholder="Describe what you want to achieve: improve decisions, identify unusual records, recover missing data, explain outcomes, or generate test data.")
 with right:
     data_description = st.text_area("Information about the data", value=SAMPLE_DESCRIPTIONS[dataset_name] if source[0] == "sample" else "", placeholder="Describe the records, column meanings, collection process, time coverage, and any known limitations.")
@@ -347,6 +361,8 @@ if supervised:
     defaults, excluded = recommended_features(df, profile, runner_case, leakage_columns)
     if benchmark_case.suggested_columns:
         defaults = [c for c in defaults if c in benchmark_case.suggested_columns]
+    if benchmark_case.forecasting and profile.datetime_columns:
+        defaults = list(dict.fromkeys(defaults + [profile.datetime_columns[0]]))
     candidate_features = [str(c) for c in df.columns if str(c) != benchmark_case.target]
     selected_features = st.multiselect(
         "Fields to use", candidate_features, default=defaults, key="evaluation_fields",

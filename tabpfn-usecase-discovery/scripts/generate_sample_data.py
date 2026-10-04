@@ -106,11 +106,48 @@ def retail(seed: int = 84, days: int = 240, stores: int = 4, products: int = 5) 
     return pd.DataFrame(records)
 
 
+def financial_payments(seed: int = 126, days: int = 731) -> pd.DataFrame:
+    """Daily card-payment counts with prior-only history and known calendar inputs."""
+    rng = np.random.default_rng(seed)
+    records = []
+    history = []
+    local_demand = 0.0
+    weekday_effect = [1.0, .98, 1.02, 1.05, 1.18, 1.24, .93]
+    # Export January 2024 onward; December provides the first day's lagged inputs.
+    dates = pd.date_range("2023-12-04", periods=days + 28, freq="D")
+    for index, date in enumerate(dates):
+        month_end = int(date.is_month_end)
+        payday = int(date.day <= 3 or date.day >= 25)
+        campaign = int(rng.random() < .08)
+        previous = history[-1] if history else 2200
+        mean_7d = float(np.mean(history[-7:])) if history else 2200
+        mean_28d = float(np.mean(history[-28:])) if history else 2200
+        last_week = history[-7] if len(history) >= 7 else 2200
+        annual_effect = 1 + .07 * np.sin(2 * np.pi * date.dayofyear / 365.25)
+        local_demand = .8 * local_demand + rng.normal(0, .018)
+        expected = (2200 + 1.4 * index) * weekday_effect[date.dayofweek] * annual_effect
+        expected *= 1 + .10 * payday + .05 * month_end + .12 * campaign
+        expected *= np.exp(local_demand)
+        count = int(rng.poisson(rng.gamma(200, expected / 200)))
+        if index >= 28:
+            records.append({
+                "date": date.date().isoformat(), "day_of_week": date.day_name(),
+                "month_end_flag": month_end, "payday_period_flag": payday,
+                "planned_campaign_flag": campaign, "transaction_count_previous_day": previous,
+                "avg_transaction_count_previous_7_days": round(mean_7d, 1),
+                "avg_transaction_count_previous_28_days": round(mean_28d, 1),
+                "transaction_count_same_weekday_last_week": last_week, "transaction_count": count,
+            })
+        history.append(count)
+    return pd.DataFrame(records)
+
+
 def main() -> None:
     output = ROOT / "data" / "samples"
     output.mkdir(parents=True, exist_ok=True)
     manufacturing().to_csv(output / "synthetic_manufacturing.csv", index=False)
     retail().to_csv(output / "synthetic_retail.csv", index=False)
+    financial_payments().to_csv(output / "synthetic_financial_payments.csv", index=False)
     print(f"Generated sample data in {output}")
 
 

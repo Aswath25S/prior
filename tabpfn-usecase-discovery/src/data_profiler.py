@@ -53,7 +53,7 @@ def profile_dataset(df: pd.DataFrame) -> DatasetProfile:
         non_null = series.dropna()
         unique = int(non_null.nunique())
         ratio = unique / max(len(non_null), 1)
-        if ID_PATTERN.search(name) or (rows >= 20 and ratio > 0.98 and unique == len(non_null)):
+        if name not in datetimes and (ID_PATTERN.search(name) or (rows >= 20 and ratio > 0.98 and unique == len(non_null))):
             identifiers.append(name)
         if name in categorical and unique >= 20 and ratio > 0.2:
             high_cardinality.append(name)
