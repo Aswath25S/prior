@@ -12,7 +12,8 @@ from scripts.generate_sample_data import manufacturing, retail
 from src.analysis import run_tabpfn_analysis
 from src.benchmark import BenchmarkError, prepare_benchmark, run_tabpfn_benchmark
 from src.data_profiler import profile_dataset
-from src.schemas import SupportLevel, UseCase
+from src.schemas import BenchmarkPlan, BenchmarkResult, SupportLevel, UseCase
+from src.result_views import confusion_matrix_figure
 from src.objective_refinement import RefinedObjective
 
 
@@ -152,18 +153,44 @@ def test_result_views_render_measured_artifacts(kind, fake_client, monkeypatch):
     monkeypatch.setitem(sys.modules, "evaluation_test_artifact", module)
     app = AppTest.from_string("from evaluation_test_artifact import result\nfrom src.result_views import render_analysis, render_benchmark\n" + view).run(timeout=20)
     assert not app.exception
-    assert len(app.get("plotly_chart")) <= 1
+    assert len(app.get("plotly_chart")) <= (2 if kind == "classification" else 1)
     assert len(app.dataframe) == 1
     if kind in {"classification", "regression", "forecasting"}:
-        assert len(app.get("plotly_chart")) == 1
-        chart = json.loads(app.get("plotly_chart")[0].proto.spec)
+        assert len(app.get("plotly_chart")) == (2 if kind == "classification" else 1)
+        chart = json.loads(app.get("plotly_chart")[-1].proto.spec)
         assert chart["data"][0]["type"] == "waterfall"
+        if kind == "classification":
+            matrix = json.loads(app.get("plotly_chart")[0].proto.spec)
+            assert matrix["data"][0]["type"] == "heatmap"
+            assert sum(sum(row) for row in matrix["data"][0]["z"]) == result.plan.test_rows
         assert "Measure to compare" not in [select.label for select in app.selectbox]
         assert "Inspect an individual result" in [select.label for select in app.selectbox]
         assert "Download prediction explanations" not in [button.label for button in app.get("download_button")]
     assert "How to interpret this evaluation" in [expander.label for expander in app.expander]
     if kind in {"imputation", "anomaly_detection", "synthetic_generation"}:
         assert len(app.get("download_button")) >= 1
+
+
+@pytest.mark.parametrize("target,actual,predicted,classes,expected,names", [
+    ("failure_next_30_days", [0, 0, 0, 1, 1], [0, 0, 1, 0, 1], ["0", "1"],
+     [[2, 1], [1, 1]], ["No failure (0)", "Failure (1)"]),
+    ("status", ["low", "low", "high", "high"], ["low", "high", "high", "low"],
+     ["high", "low", "normal"], [[1, 1, 0], [1, 1, 0], [0, 0, 0]], ["high", "low", "normal"]),
+])
+def test_confusion_matrix_counts_and_class_order(target, actual, predicted, classes, expected, names):
+    result = BenchmarkResult(
+        BenchmarkPlan(target, "binary classification" if len(classes) == 2 else "multiclass classification",
+                      ["input"], {}, "Holdout", 20, len(actual)),
+        {}, [], predictions=pd.DataFrame({"Observed": actual, "Predicted": predicted}),
+        probabilities=pd.DataFrame(columns=classes),
+    )
+    figure = confusion_matrix_figure(result)
+    assert list(figure.data[0].z) == expected
+    assert list(figure.data[0].x) == names
+    assert list(figure.data[0].y) == names
+    assert figure.layout.xaxis.title.text == "Predicted outcome"
+    assert figure.layout.yaxis.title.text == "Actual outcome"
+    assert sum(sum(row) for row in figure.data[0].z) == len(actual)
 
 
 def test_multiclass_shap_explains_each_records_predicted_class(fake_client):

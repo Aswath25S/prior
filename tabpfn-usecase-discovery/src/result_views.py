@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from sklearn.metrics import confusion_matrix
 
 from .schemas import AnalysisResult, BenchmarkResult
 
@@ -22,16 +23,56 @@ def render_benchmark(result: BenchmarkResult, *, forecasting=False):
     st.dataframe(scores.style.format("{:.3f}").highlight_max(subset=[c for c in scores if c.endswith('↑')], props="background-color: #d9ead3; color: #16351e;")
                  .highlight_min(subset=[c for c in scores if c.endswith('↓')], props="background-color: #d9ead3; color: #16351e;"), width="stretch")
     st.caption("↑ Higher is better · ↓ Lower is better. All models use the same unseen test records.")
+    if "classification" in result.plan.task_type:
+        render_confusion_matrix(result)
     render_explanations(result)
     with st.expander("How to interpret this evaluation"):
         if "classification" in result.plan.task_type:
             st.write("Accuracy measures correct predictions overall. Balanced accuracy gives each outcome equal weight. Precision measures how often alerts are correct; recall measures how many important outcomes are found. F1 balances precision and recall; AUC scores assess ranking quality.")
+            st.write("The confusion matrix counts TabPFN predictions on unseen test records. Rows show actual outcomes; columns show predicted outcomes. Diagonal cells are correct predictions, and other cells are mistakes.")
         else:
             st.write("MAE is the typical error in the outcome's units. RMSE gives larger mistakes more weight. R² compares the estimates with predicting the average; it can be negative when the model performs poorly.")
         if forecasting:
             st.write("The latest dates are held out together. This is a historical forecast test using supplied inputs; those inputs must also be available when making real forecasts.")
         for note in result.notes:
             st.write(note)
+
+
+def confusion_matrix_figure(result: BenchmarkResult):
+    records = result.predictions
+    if records is None or records.empty:
+        return None
+    actual = records["Observed"].astype(str)
+    predicted = records["Predicted"].astype(str)
+    labels = set(actual) | set(predicted)
+    if result.probabilities is not None:
+        labels.update(str(label) for label in result.probabilities.columns)
+    labels = sorted(labels)
+    counts = confusion_matrix(actual, predicted, labels=labels).tolist()
+    names = labels
+    if result.plan.target == "failure_next_30_days" and set(labels) <= {"0", "1"}:
+        names = ["No failure (0)" if label == "0" else "Failure (1)" for label in labels]
+    figure = go.Figure(go.Heatmap(
+        z=counts, x=names, y=names, colorscale="Blues", zmin=0,
+        text=counts, texttemplate="%{text}",
+        colorbar=dict(title="Records"),
+        hovertemplate="Actual: %{y}<br>Predicted: %{x}<br>Records: %{z}<extra></extra>",
+    ))
+    figure.update_layout(
+        title="TabPFN confusion matrix", xaxis_title="Predicted outcome", yaxis_title="Actual outcome",
+        xaxis=dict(type="category", side="bottom"), yaxis=dict(type="category", autorange="reversed"),
+    )
+    return figure
+
+
+def render_confusion_matrix(result: BenchmarkResult):
+    figure = confusion_matrix_figure(result)
+    if figure is None:
+        return
+    _chart(figure)
+    st.caption("Counts from unseen test records. Diagonal cells are correct predictions; off-diagonal cells are mistakes.")
+    if result.plan.target == "failure_next_30_days":
+        st.caption("Actual failure → predicted no failure: missed failure. Actual no failure → predicted failure: false alarm.")
 
 
 def render_explanations(result: BenchmarkResult):
