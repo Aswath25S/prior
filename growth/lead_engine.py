@@ -7,7 +7,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-09-28-full-range-scoring-v22"
+DATA_VERSION = "2026-10-11-interview-sample-times-v23"
 STATUS_ORDER = ["In Progress", "Success", "Rejected"]
 SUCCESS_MILESTONES = ["Commercial win"]
 REJECTION_REASONS = [
