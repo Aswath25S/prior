@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 
 import pandas as pd
 import streamlit as st
@@ -394,7 +395,7 @@ if len(portfolio):
         with st.expander("Demo: simulate a Calendly booking"):
             default_start = (
                 pd.Timestamp.now(tz="UTC").normalize()
-                + pd.Timedelta(days=1, hours=10)
+                + timedelta(days=1, hours=10)
             )
             booking_date = st.date_input(
                 "Meeting date", value=default_start.date(), key=f"booking_date_{lead_id}"
@@ -407,7 +408,7 @@ if len(portfolio):
                 value=f"https://meet.google.com/lookup/prior-{lead_id.lower()}",
                 key=f"join_url_{lead_id}",
             )
-            if st.button("Record demo booking", width="stretch", key=f"book_{lead_id}"):
+            if st.button("Book demo meeting", width="stretch", key=f"book_{lead_id}"):
                 row_index = st.session_state.leads.index[
                     st.session_state.leads["lead_id"] == lead_id
                 ][0]
@@ -417,7 +418,7 @@ if len(portfolio):
                 ] = scheduled_start.isoformat()
                 st.session_state.leads.loc[
                     row_index, "meeting_end_at"
-                ] = (scheduled_start + pd.Timedelta(minutes=30)).isoformat()
+                ] = (scheduled_start + timedelta(minutes=30)).isoformat()
                 st.session_state.leads.loc[row_index, "meeting_join_url"] = join_url
                 sync_meeting_statuses(st.session_state.leads)
                 st.rerun()

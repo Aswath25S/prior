@@ -259,7 +259,7 @@ with queue_tab:
             "waiting": st.column_config.TextColumn("Account waiting", width="small"),
             "engagement": st.column_config.TextColumn("Engagement", width="medium"),
             "status": st.column_config.TextColumn("Status", width="medium"),
-            "owner": st.column_config.TextColumn("Owner", width="medium"),
+            "owner": st.column_config.TextColumn("In charge", width="medium"),
         },
     )
 

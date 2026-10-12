@@ -1,4 +1,5 @@
 import unittest
+from datetime import timedelta
 
 import pandas as pd
 
@@ -291,8 +292,8 @@ class AssignmentStabilityTest(unittest.TestCase):
         early = self._lead("L004", 500, "UNASSIGNED", "Demand forecasting evaluation")
         late = self._lead("L005", 500, "UNASSIGNED", "Demand forecasting evaluation")
         now = pd.Timestamp.now(tz="UTC")
-        early["inbound_time"] = (now - pd.Timedelta(days=3)).isoformat()
-        late["inbound_time"] = (now - pd.Timedelta(hours=1)).isoformat()
+        early["inbound_time"] = (now - timedelta(days=3)).isoformat()
+        late["inbound_time"] = (now - timedelta(hours=1)).isoformat()
 
         view = build_lead_view(pd.DataFrame([early, late]), self.team).set_index("lead_id")
 
@@ -341,11 +342,11 @@ class AssignmentStabilityTest(unittest.TestCase):
         old_high_quality = self._lead(
             "L032", 5000, "UNASSIGNED", "Production deployment and procurement"
         )
-        old_low_quality["inbound_time"] = (now - pd.Timedelta(days=7)).isoformat()
+        old_low_quality["inbound_time"] = (now - timedelta(days=7)).isoformat()
         recent_low_quality["inbound_time"] = (
-            now - pd.Timedelta(days=6, hours=23)
+            now - timedelta(days=6, hours=23)
         ).isoformat()
-        old_high_quality["inbound_time"] = (now - pd.Timedelta(days=8)).isoformat()
+        old_high_quality["inbound_time"] = (now - timedelta(days=8)).isoformat()
 
         view = build_lead_view(
             pd.DataFrame([old_low_quality, recent_low_quality, old_high_quality]),
@@ -368,8 +369,8 @@ class AssignmentStabilityTest(unittest.TestCase):
         queued = self._lead(
             "L034", 1, "UNASSIGNED", "Personal project and learning only"
         )
-        self_serve["inbound_time"] = (now - pd.Timedelta(days=8)).isoformat()
-        queued["inbound_time"] = (now - pd.Timedelta(hours=1)).isoformat()
+        self_serve["inbound_time"] = (now - timedelta(days=8)).isoformat()
+        queued["inbound_time"] = (now - timedelta(hours=1)).isoformat()
 
         view = build_lead_view(
             pd.DataFrame([self_serve, queued]), self.team, now=now
@@ -450,7 +451,7 @@ class AssignmentStabilityTest(unittest.TestCase):
             lead["job_title"] = "VP of Data"
             lead["source"] = "SAP"
             lead["account_activity_count"] = 5
-            lead["inbound_time"] = (now - pd.Timedelta(days=7)).isoformat()
+            lead["inbound_time"] = (now - timedelta(days=7)).isoformat()
             leads.append(lead)
 
         view = build_lead_view(pd.DataFrame(leads), self.team, now=now)

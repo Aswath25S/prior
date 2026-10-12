@@ -1,5 +1,6 @@
 """Shared lead scoring and sales-capacity allocation for Streamlit pages."""
 
+from datetime import timedelta
 from pathlib import Path
 import re
 
@@ -190,7 +191,12 @@ def ensure_outcome_fields(leads):
         if column not in leads.columns:
             leads[column] = default
         elif default is not None:
-            leads[column] = leads[column].fillna(default)
+            if isinstance(default, bool):
+                leads[column] = (
+                    leads[column].astype("boolean").fillna(default).astype(bool)
+                )
+            else:
+                leads[column] = leads[column].fillna(default)
     return leads
 
 
@@ -223,7 +229,7 @@ def sync_meeting_statuses(leads, now=None):
             continue
         end_at = pd.to_datetime(lead["meeting_end_at"], utc=True, errors="coerce")
         if pd.isna(end_at):
-            end_at = start_at + pd.Timedelta(minutes=30)
+            end_at = start_at + timedelta(minutes=30)
             leads.at[lead_index, "meeting_end_at"] = end_at.isoformat()
 
         if current_time < start_at:
