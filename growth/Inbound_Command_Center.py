@@ -63,7 +63,7 @@ if "contact_waiting" not in df.columns:
     else:
         df["contact_waiting"] = df.get("waiting", "Not available")
 df = df.sort_values(
-    ["score", "received_at"], ascending=[False, True]
+    ["self_serve", "score", "received_at"], ascending=[True, False, True]
 ).reset_index(drop=True)
 account_df = build_account_view(df)
 
@@ -237,6 +237,10 @@ with queue_tab:
     else:
         view = view.sort_values("company", key=lambda values: values.str.lower())
 
+    # Self-serve is a terminal queue tier and always stays below sales-work items,
+    # while the selected sort order remains intact within each tier.
+    view = view.sort_values("self_serve", ascending=True, kind="stable")
+
     st.dataframe(
         view[[
             "score", "account_name", "account_contact_count", "waiting",
@@ -268,7 +272,12 @@ with queue_tab:
         selected_label = st.selectbox("Open account", list(lead_options.keys()))
         account_id = lead_options[selected_label]
         account_contacts = df[df["account_id"] == account_id].copy()
-        lead = account_contacts.sort_values(
+        active_contacts = account_contacts[account_contacts["status"] == "In Progress"]
+        primary_pool = active_contacts if len(active_contacts) else account_contacts
+        lead = primary_pool.sort_values(
+            ["primary_contact_score", "received_at"], ascending=[False, True]
+        ).iloc[0]
+        qualification_lead = account_contacts.sort_values(
             ["contact_qualification_score", "received_at"], ascending=[False, True]
         ).iloc[0]
 
@@ -304,37 +313,49 @@ with queue_tab:
                 st.write(f"**{lead['name']}**")
                 st.write(lead["email"])
                 st.write(lead["job_title"])
+                st.caption(
+                    f"{lead['contact_role']} · contact priority "
+                    f"{int(lead['primary_contact_score'])}/100"
+                )
             with primary_source:
                 st.write(f"**{lead['normalized_source']}**")
                 st.write(f"Received {received_label}")
                 st.write(f"Contact waiting {lead['contact_waiting']}")
 
-            st.markdown("**Primary inbound signal**")
-            st.info(lead["inbound_text"])
+            st.markdown("**Available inbound signal**")
+            if lead["inbound_text"] == "No inbound message provided.":
+                st.caption("No inbound message was captured for this contact.")
+            else:
+                st.info(lead["inbound_text"])
 
             contact_table = account_contacts.copy()
-            contact_table["contact_role"] = contact_table["lead_id"].apply(
+            contact_table["contact_priority"] = contact_table["lead_id"].apply(
                 lambda value: "Primary" if value == lead["lead_id"] else "Supporting"
             )
             contact_table = contact_table.sort_values(
-                ["contact_qualification_score", "received_at"], ascending=[False, True]
+                ["primary_contact_score", "received_at"], ascending=[False, True]
             )
             st.markdown("**Contacts at this account**")
             st.dataframe(
                 contact_table[[
-                    "contact_role", "name", "email", "job_title", "normalized_source",
+                    "contact_priority", "name", "contact_role", "email", "job_title",
+                    "normalized_source", "primary_contact_score",
                     "contact_qualification_score", "received_at", "contact_waiting", "inbound_text",
                 ]],
                 hide_index=True,
                 width="stretch",
                 column_config={
-                    "contact_role": st.column_config.TextColumn("Role", width="small"),
+                    "contact_priority": st.column_config.TextColumn("Priority", width="small"),
                     "name": st.column_config.TextColumn("Contact", width="medium"),
+                    "contact_role": st.column_config.TextColumn("Likely role", width="medium"),
                     "email": st.column_config.TextColumn("Email", width="medium"),
                     "job_title": st.column_config.TextColumn("Title", width="medium"),
                     "normalized_source": st.column_config.TextColumn("Source", width="medium"),
+                    "primary_contact_score": st.column_config.NumberColumn(
+                        "Contact priority", width="small"
+                    ),
                     "contact_qualification_score": st.column_config.NumberColumn(
-                        "Individual signal", width="small"
+                        "Lead quality", width="small"
                     ),
                     "received_at": st.column_config.DatetimeColumn(
                         "Received", format="MMM D, h:mm a", width="medium"
@@ -346,11 +367,16 @@ with queue_tab:
                 },
             )
             s1, s2, s3 = st.columns(3)
-            s1.metric("Potential", f"{int(lead['commercial_potential'])}/40")
-            s2.metric("Intent", f"{int(lead['buying_intent'])}/35")
-            s3.metric("Use case", f"{int(lead['use_case_score'])}/25")
+            s1.metric("Potential", f"{int(qualification_lead['commercial_potential'])}/40")
+            s2.metric("Intent", f"{int(qualification_lead['buying_intent'])}/35")
+            s3.metric("Use case", f"{int(qualification_lead['use_case_score'])}/25")
             with st.expander("Why this priority?"):
-                for reason in lead["why"].split(" | "):
+                if qualification_lead["lead_id"] != lead["lead_id"]:
+                    st.markdown(
+                        f"- Account qualification is driven by "
+                        f"{qualification_lead['name']}; {lead['name']} is the primary contact."
+                    )
+                for reason in qualification_lead["why"].split(" | "):
                     st.markdown(f"- {reason}")
                 st.markdown(
                     f"- Account quality contribution: {int(lead['qualification_points'])}/85 "
@@ -365,9 +391,16 @@ with queue_tab:
                         f"- Self-serve rule: lead quality below {SELF_SERVE_QUALITY_THRESHOLD} "
                         "and waiting time of at least 7 days"
                     )
-                st.markdown(f"- Persona: {lead['persona']}")
-                st.markdown(f"- Use-case stage: {lead['use_case_maturity']}")
-                st.markdown(f"- Data completeness: {lead['confidence']}")
+                st.markdown(f"- Persona: {qualification_lead['persona']}")
+                st.markdown(f"- Use-case stage: {qualification_lead['use_case_maturity']}")
+                st.markdown(f"- Data completeness: {qualification_lead['confidence']}")
+            with st.expander("Why this primary contact?"):
+                for reason in lead["primary_contact_why"].split(" | "):
+                    st.markdown(f"- {reason}")
+                st.caption(
+                    "Company size, company activity, number of contacts, and inbound-message "
+                    "content are deliberately excluded from contact selection."
+                )
 
         with action_col:
             st.markdown("**Engagement and progress**")
@@ -521,8 +554,9 @@ with add_tab:
             )
             activity = st.number_input("Recent company activities", min_value=1, value=2)
             inbound_text = st.text_area(
-                "What they said or did",
-                "We are evaluating TabPFN against LightGBM for a production demand forecasting use case.",
+                "Inbound message or note (optional)",
+                "",
+                help="Most inbound records will not include free-text context. Leave this blank when unavailable.",
             )
         submitted = st.form_submit_button("Score this lead", type="primary")
 
@@ -556,6 +590,10 @@ with add_tab:
         p1.metric("Potential", f"{result['commercial_potential']}/40")
         p2.metric("Intent", f"{result['buying_intent']}/35")
         p3.metric("Use case", f"{result['use_case_score']}/25")
+        st.caption(
+            f"Contact priority: {int(result['primary_contact_score'])}/100 · "
+            f"{result['contact_role']}"
+        )
         add_col, clear_col = st.columns([1, 1])
         if add_col.button("Add to priority queue", type="primary", width="stretch"):
             st.session_state.leads = pd.concat(
@@ -580,6 +618,10 @@ The system asks three simple questions:
 The three evidence dimensions first produce a **lead-quality score out of 100**. Quality is scaled to contribute up to **85 points**, and waiting time contributes up to **15 points**, creating one final priority score.
 
 Contacts sharing an account are resolved into one commercial opportunity, one owner, and one capacity slot. The highest-scoring eligible accounts are assigned up to total team capacity. Accounts that remain in the selected set keep their owner where individual capacity allows.
+
+The **primary contact is selected separately from account qualification**. Contact priority uses only the person's likely authority, role relevance, acquisition source, and contactability. Company size, company activity, number of known contacts, and inbound-message content do not affect which person is selected. Ties go to the earliest contact.
+
+Inbound free text is optional and is expected to be absent for most records. When it is unavailable, the model records the use case as **Not observed** instead of treating missing text as evidence of a weak or immature opportunity.
 
 The time component is deliberately bounded, so urgency can move an older account up the running queue without overwhelming commercial quality. Low-quality accounts move to self-serve only after 7 days.
 

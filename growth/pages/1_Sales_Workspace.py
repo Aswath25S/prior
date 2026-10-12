@@ -142,6 +142,9 @@ elif sort_by == "Company — A to Z":
 else:
     portfolio = portfolio.sort_values(["score", "received_at"], ascending=[False, True])
 
+if "self_serve" in portfolio.columns:
+    portfolio = portfolio.sort_values("self_serve", ascending=True, kind="stable")
+
 st.dataframe(
     portfolio[[
         "score", "name", "account_name", "pipeline_stage", "waiting",
@@ -190,6 +193,10 @@ if len(portfolio):
             st.write(f"**{lead['name']}**")
             st.write(lead["email"])
             st.write(lead["job_title"])
+            st.caption(
+                f"{lead['contact_role']} · contact priority "
+                f"{int(lead['primary_contact_score'])}/100"
+            )
         with profile_account:
             st.caption("COMPANY")
             st.write(f"**{int(lead['company_size']):,} employees**")
@@ -204,7 +211,10 @@ if len(portfolio):
                 f"{int(lead['account_activity_signal'])} activities · "
                 f"{int(lead['account_contact_count'])} known contact(s)"
             )
-        st.info(lead["inbound_text"])
+        if lead["inbound_text"] == "No inbound message provided.":
+            st.caption("No inbound message was captured for this contact.")
+        else:
+            st.info(lead["inbound_text"])
 
         if current_meeting_status in {"Scheduled", "In progress"}:
             st.markdown("### Call preparation")

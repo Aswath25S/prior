@@ -7,7 +7,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-10-11-interview-sample-times-v23"
+DATA_VERSION = "2026-10-11-self-serve-last-v26"
 STATUS_ORDER = ["In Progress", "Success", "Rejected"]
 SUCCESS_MILESTONES = ["Commercial win"]
 REJECTION_REASONS = [
@@ -339,9 +339,41 @@ def classify_persona(title):
     return "Other / unknown"
 
 
+def classify_contact_role(title):
+    """Describe a contact's likely role without using company-level evidence."""
+    title = safe_text(title).lower()
+    if any(term in title for term in ["procurement", "purchasing", "sourcing"]):
+        return "Commercial buyer"
+    if any(term in title for term in [
+        "chief", "vp", "vice president", "head of", "director", "founder", "co-founder",
+    ]):
+        return "Commercial decision-maker"
+    if any(term in title for term in [
+        "student", "postdoc", "postdoctoral", "researcher", "investigator", "academic",
+    ]):
+        return "Academic / researcher"
+    if any(term in title for term in ["architect", "lead", "principal", "manager"]):
+        return "Senior evaluator / influencer"
+    if any(term in title for term in [
+        "data scientist", "data science", "machine learning", "ml engineer", "ml eng",
+        "analytics", "engineer",
+    ]) or title in {"ds", "senior ds"}:
+        return "Technical champion"
+    if any(term in title for term in ["team", "shared inbox", "group"]):
+        return "Shared team contact"
+    if title and title not in {"unknown", "unknown role", "n/a"}:
+        return "Other stakeholder"
+    return "Unknown role"
+
+
 def classify_use_case_maturity(text):
     """Classify technical and operational readiness without inferring purchase intent."""
     text = safe_text(text).lower()
+    if not text or text == "no inbound message provided.":
+        return {
+            "use_case_maturity": "Not observed",
+            "use_case_score": 10,
+        }
     noncommercial = any(term in text for term in [
         "school project", "class project", "student project", "personal project",
         "hobby", "coursework", "learning only", "toy dataset",
@@ -394,6 +426,71 @@ def detect_negative_intent(text):
         "no active project", "not buying", "no commercial use", "learning only",
         "personal side project", "just me exploring", "no specific prod project",
     ])
+
+
+def score_primary_contact(row):
+    """Rank contacts using only person-level evidence, never company or message data."""
+    role = classify_contact_role(row.get("job_title", ""))
+    authority = {
+        "Commercial decision-maker": 45,
+        "Commercial buyer": 40,
+        "Senior evaluator / influencer": 35,
+        "Technical champion": 30,
+        "Other stakeholder": 18,
+        "Shared team contact": 15,
+        "Academic / researcher": 10,
+        "Unknown role": 5,
+    }[role]
+
+    title = safe_text(row.get("job_title", "")).lower()
+    relevant_terms = [
+        "data", "analytics", "risk", "credit", "fraud", "ai", "machine learning",
+        "ml", "platform", "engineer", "cloud", "architect", "clinical", "operations",
+        "ops", "innovation", "procurement", "digitalization",
+    ]
+    if any(term in title for term in relevant_terms):
+        relevance = 25
+    elif role in {"Commercial decision-maker", "Commercial buyer", "Senior evaluator / influencer"}:
+        relevance = 20
+    elif role == "Academic / researcher":
+        relevance = 12
+    elif role == "Unknown role":
+        relevance = 0
+    else:
+        relevance = 10
+
+    source = normalize_source(row.get("source", ""))
+    source_points = {
+        "Direct website": 20,
+        "SAP": 18,
+        "Free API": 14,
+        "Open-source / GitHub": 10,
+        "Other": 8,
+    }[source]
+
+    email = safe_text(row.get("email", "")).lower()
+    if "@" not in email:
+        contactability = 0
+    elif email.rsplit("@", 1)[-1] in GENERIC_EMAIL_DOMAINS:
+        contactability = 5
+    else:
+        contactability = 10
+
+    contact_score = min(authority + relevance + source_points + contactability, 100)
+    return {
+        "contact_role": role,
+        "contact_authority_points": authority,
+        "contact_relevance_points": relevance,
+        "contact_source_points": source_points,
+        "contactability_points": contactability,
+        "primary_contact_score": contact_score,
+        "primary_contact_why": " | ".join([
+            f"Authority: {authority}/45 ({role})",
+            f"Role relevance: {relevance}/25",
+            f"Source: {source_points}/20 ({source})",
+            f"Contactability: {contactability}/10",
+        ]),
+    }
 
 
 def score_lead(row):
@@ -518,7 +615,14 @@ def build_lead_view(leads, sales_team, now=None):
         "account_activity_count"
     ].transform(lambda values: max(safe_int(value, 1) for value in values))
     scored = prepared.apply(lambda row: pd.Series(score_lead(row)), axis=1)
-    result = pd.concat([prepared, scored.reset_index(drop=True)], axis=1)
+    contact_scored = prepared.apply(
+        lambda row: pd.Series(score_primary_contact(row)), axis=1
+    )
+    result = pd.concat([
+        prepared,
+        scored.reset_index(drop=True),
+        contact_scored.reset_index(drop=True),
+    ], axis=1)
     result["received_at"] = pd.to_datetime(result["inbound_time"], utc=True, errors="coerce")
     current_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
     if current_time.tzinfo is None:
@@ -557,7 +661,8 @@ def build_lead_view(leads, sales_team, now=None):
     ] = "Nurture / monitor"
     result["waiting"] = result["waiting_hours"].apply(format_wait)
     result = result.sort_values(
-        ["score", "qualification_score", "received_at"], ascending=[False, False, True]
+        ["self_serve", "score", "qualification_score", "received_at"],
+        ascending=[True, False, False, True],
     ).copy()
 
     valid_owners = set(sales_team["salesperson_id"])
@@ -634,7 +739,7 @@ def build_account_view(lead_view):
         active_rows = account_rows[account_rows["status"] == "In Progress"]
         representative_pool = active_rows if not active_rows.empty else account_rows
         representative = representative_pool.sort_values(
-            ["contact_qualification_score", "received_at"], ascending=[False, True]
+            ["primary_contact_score", "received_at"], ascending=[False, True]
         ).iloc[0].copy()
         representative["account_contact_count"] = int(account_rows["lead_id"].nunique())
         representative["received_at"] = account_rows["received_at"].min()
@@ -647,7 +752,7 @@ def build_account_view(lead_view):
             representative["status"] = "In Progress"
         rows.append(representative)
     return pd.DataFrame(rows).sort_values(
-        ["score", "received_at"], ascending=[False, True]
+        ["self_serve", "score", "received_at"], ascending=[True, False, True]
     ).reset_index(drop=True)
 
 

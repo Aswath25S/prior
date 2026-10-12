@@ -59,6 +59,9 @@ def _integer(value, default=0):
 
 def call_prep_context(lead):
     """Select and normalize only the lead fields needed for call preparation."""
+    inbound_message = _text(lead.get("inbound_text"), "Unavailable")
+    if inbound_message == "No inbound message provided.":
+        inbound_message = "Unavailable"
     return {
         "lead_id": _text(lead.get("lead_id")),
         "name": _text(lead.get("name")),
@@ -68,7 +71,7 @@ def call_prep_context(lead):
         "company_type": _text(lead.get("account_type")),
         "persona": _text(lead.get("persona")),
         "source": _text(lead.get("normalized_source", lead.get("source"))),
-        "inbound_message": _text(lead.get("inbound_text")),
+        "inbound_message": inbound_message,
         "recent_company_activities": _integer(
             lead.get("account_activity_signal", lead.get("account_activity_count", 0))
         ),
@@ -93,6 +96,7 @@ def build_fallback_call_prep(lead):
     """Create a deterministic brief when the OpenAI API is not configured."""
     context = call_prep_context(lead)
     message = context["inbound_message"].lower()
+    has_inbound_message = message != "unavailable"
     signals = []
     if context["known_contacts"] >= 3:
         signals.append(
@@ -155,19 +159,32 @@ def build_fallback_call_prep(lead):
     if not risks:
         risks.append("Confirm that technical interest is connected to a funded business priority.")
 
+    if has_inbound_message:
+        context_summary = (
+            f"Their message points to a {context['use_case_stage'].lower()} TabPFN use case"
+        )
+    else:
+        context_summary = "No inbound message was captured, so the use case must be discovered"
     summary = (
         f"{context['name']}, {context['job_title']} at {context['company']}, booked a meeting after "
-        f"engaging through {context['source']}. Their message points to a {context['use_case_stage'].lower()} "
-        f"TabPFN use case, with {context['recent_company_activities']} recent company activities and "
+        f"engaging through {context['source']}. {context_summary}, with "
+        f"{context['recent_company_activities']} recent company activities and "
         f"{context['known_contacts']} known contact(s)."
     )
     objective = (
         "Confirm the business problem, define measurable evaluation criteria, and agree on the owner and next step for a TabPFN evaluation."
     )
-    hypothesis = (
-        f"Hypothesis: {context['company']} is exploring TabPFN for the problem described in the inbound message: "
-        f"“{context['inbound_message']}” The exact dataset, baseline, decision process, and production requirements still need confirmation."
-    )
+    if has_inbound_message:
+        hypothesis = (
+            f"Hypothesis: {context['company']} is exploring TabPFN for the problem described in "
+            f"the inbound message: “{context['inbound_message']}” The exact dataset, baseline, "
+            "decision process, and production requirements still need confirmation."
+        )
+    else:
+        hypothesis = (
+            f"No use-case hypothesis is supported yet for {context['company']}; establish the "
+            "business problem, dataset, baseline, and production requirements during discovery."
+        )
 
     return {
         "summary": summary,

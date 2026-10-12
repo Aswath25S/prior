@@ -9,6 +9,7 @@ from growth.lead_engine import (
     persist_owner_assignments,
     record_calendly_invites,
     score_lead,
+    score_primary_contact,
     update_lead_progress,
     waiting_points,
 )
@@ -39,7 +40,7 @@ class AssignmentStabilityTest(unittest.TestCase):
             "company_size": company_size,
             "job_title": "Director of Data Science",
             "source": "Direct website",
-            "inbound_time": "2026-09-27T12:00:00Z",
+            "inbound_time": pd.Timestamp.now(tz="UTC").isoformat(),
             "account_activity_count": 1,
             "inbound_text": inbound_text,
             "owner_id": owner_id,
@@ -206,6 +207,64 @@ class AssignmentStabilityTest(unittest.TestCase):
             "source": "Other",
         })["account_type"], "Large enterprise")
 
+    def test_primary_contact_score_ignores_company_and_inbound_message(self):
+        base = {
+            "job_title": "Director of Data Science",
+            "source": "Direct website",
+            "email": "person@example.com",
+        }
+        sparse = score_primary_contact({
+            **base,
+            "company_size": 1,
+            "account_activity_signal": 1,
+            "account_contact_count": 1,
+            "inbound_text": "",
+        })
+        enriched = score_primary_contact({
+            **base,
+            "company_size": 100000,
+            "account_activity_signal": 50,
+            "account_contact_count": 8,
+            "inbound_text": "Production procurement and pricing request",
+        })
+
+        self.assertEqual(sparse["primary_contact_score"], enriched["primary_contact_score"])
+
+    def test_primary_contact_prefers_person_level_authority(self):
+        director = self._lead("L014", 5000, "UNASSIGNED", "")
+        director["name"] = "Decision Maker"
+        director["email"] = "director@same-company.example"
+        director["job_title"] = "Director of Risk Analytics"
+        director["source"] = "SAP"
+        technical = self._lead("L015", 5000, "UNASSIGNED", "Strong production request")
+        technical["name"] = "Technical User"
+        technical["email"] = "engineer@same-company.example"
+        technical["job_title"] = "Machine Learning Engineer"
+        technical["source"] = "Direct website"
+
+        view = build_lead_view(pd.DataFrame([director, technical]), self.team)
+        account = build_account_view(view).iloc[0]
+
+        self.assertEqual(account["lead_id"], "L014")
+        self.assertEqual(account["contact_role"], "Commercial decision-maker")
+        self.assertGreater(
+            view.set_index("lead_id").at["L014", "primary_contact_score"],
+            view.set_index("lead_id").at["L015", "primary_contact_score"],
+        )
+
+    def test_missing_inbound_text_is_not_observed_instead_of_negative(self):
+        result = score_lead({
+            "company_size": 500,
+            "job_title": "Data Scientist",
+            "source": "Free API",
+            "inbound_text": "",
+            "account_activity_count": 1,
+            "account_contact_count": 1,
+        })
+
+        self.assertEqual(result["use_case_maturity"], "Not observed")
+        self.assertEqual(result["use_case_score"], 10)
+
     def test_missing_lead_fields_receive_safe_fallbacks(self):
         leads = pd.DataFrame([{"inbound_time": "not-a-date"}])
 
@@ -300,6 +359,28 @@ class AssignmentStabilityTest(unittest.TestCase):
         self.assertFalse(view.at["L031", "self_serve"])
         self.assertGreaterEqual(view.at["L032", "qualification_score"], 30)
         self.assertFalse(view.at["L032", "self_serve"])
+
+    def test_self_serve_contacts_and_accounts_are_always_sorted_last(self):
+        now = pd.Timestamp("2026-10-12T12:00:00Z")
+        self_serve = self._lead(
+            "L033", 1, "UNASSIGNED", "Personal project and learning only"
+        )
+        queued = self._lead(
+            "L034", 1, "UNASSIGNED", "Personal project and learning only"
+        )
+        self_serve["inbound_time"] = (now - pd.Timedelta(days=8)).isoformat()
+        queued["inbound_time"] = (now - pd.Timedelta(hours=1)).isoformat()
+
+        view = build_lead_view(
+            pd.DataFrame([self_serve, queued]), self.team, now=now
+        )
+        accounts = build_account_view(view)
+
+        self.assertGreater(view.iloc[-1]["score"], view.iloc[0]["score"])
+        self.assertEqual(view.iloc[-1]["lead_id"], "L033")
+        self.assertTrue(view.iloc[-1]["self_serve"])
+        self.assertEqual(accounts.iloc[-1]["lead_id"], "L033")
+        self.assertTrue(accounts.iloc[-1]["self_serve"])
 
     def test_closed_lead_waiting_time_stops_at_outcome(self):
         lead = self._lead("L021", 500, "S001", "Demand forecasting evaluation")

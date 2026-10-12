@@ -13,20 +13,21 @@ A lightweight working prototype built voluntarily as additional material for a C
 4. A score-sorted running queue with score-gated assignment and visible supporting contacts.
 5. An explanation panel showing *why* each lead received its score.
 6. Account-level allocation of limited sales capacity; the top-scoring eligible accounts are assigned, and contacts at the same company share one owner and consume one slot.
-7. An illustrative commercial-team view showing workload and capacity.
-8. Editable progress controls for the selected lead.
-9. A form to simulate a new inbound lead live during the demo.
-10. A self-serve rule for leads with quality below 30 that have waited at least 7 days.
-11. Three clear lifecycle statuses: In Progress, Success, and Rejected. Qualified opportunities and evaluations/POCs remain In Progress; Success is reserved for accounts that become customers.
-12. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
-13. Automatic demo Calendly emails on assignment, with event-driven meeting status and a future-meeting join button in the salesperson workspace.
-14. Automatic call preparation for booked meetings, using structured OpenAI output when configured and a fact-based fallback otherwise.
-15. Structured outcome capture for qualification milestones, rejection reasons, opportunity stage/value, next action, and score-at-decision.
-16. An outcome-learning view comparing qualification and opportunity creation across inbound sources.
+7. A separate primary-contact score based only on person-level evidence: authority, role relevance, acquisition source, and contactability.
+8. An illustrative commercial-team view showing workload and capacity.
+9. Editable progress controls for the selected lead.
+10. A form to simulate a new inbound lead live during the demo.
+11. A self-serve rule for leads with quality below 30 that have waited at least 7 days.
+12. Three clear lifecycle statuses: In Progress, Success, and Rejected. Qualified opportunities and evaluations/POCs remain In Progress; Success is reserved for accounts that become customers.
+13. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
+14. Automatic demo Calendly emails on assignment, with event-driven meeting status and a future-meeting join button in the salesperson workspace.
+15. Automatic call preparation for booked meetings, using structured OpenAI output when configured and a fact-based fallback otherwise.
+16. Structured outcome capture for qualification milestones, rejection reasons, opportunity stage/value, next action, and score-at-decision.
+17. An outcome-learning view comparing qualification and opportunity creation across inbound sources.
 
 The names in `sales_team.csv` are fictional and exist only to demonstrate the operating workflow. All salespeople are interchangeable in this first version; initial calls are assigned to whoever has the most capacity left.
 Sample arrival times are parsed from their recorded timezone offsets and converted to UTC for calculation; they are never shifted when the app starts. Active waiting time runs from the account's earliest valid inbound timestamp to the current time. Closed accounts stop accumulating waiting time at their recorded outcome time.
-The fixture intentionally includes missing fields, inconsistent company names, shared inboxes, generic emails, approximate sizes, intermediaries, academics, and duplicate enterprise contacts. This makes data-quality assumptions visible during the demo instead of presenting unrealistically clean CRM data.
+The fixture intentionally includes missing fields, inconsistent company names, shared inboxes, generic emails, approximate sizes, intermediaries, academics, duplicate enterprise contacts, and mostly absent inbound-message text. This makes data-quality assumptions visible during the demo instead of presenting unrealistically clean CRM data.
 Missing fields receive explicit fallbacks such as `Unknown contact`, `Unknown role`, `Not provided`, and `No inbound message provided`; invalid timestamps remain visible as unknown rather than crashing the workflow. Leads without a usable email remain prioritizable but do not generate a simulated Calendly invitation.
 
 ## Run locally
@@ -68,6 +69,9 @@ Without an API key, the booked-meeting workflow remains fully usable and display
 - AI is limited to optional call preparation in this implementation; routing remains auditable. The prototype does not send prospect data for AI processing unless an API key is deliberately configured. Unstructured intake extraction is a logical production extension, not a demonstrated feature here.
 - The weights are hypotheses and should be calibrated with historical outcomes.
 - Lead quality contributes up to 85 points and waiting time up to 15, allowing urgency to affect queue order without dominating commercial evidence.
+- Primary-contact selection is independent of company qualification. It scores authority (45), role relevance (25), acquisition source (20), and contactability (10); company-level signals and inbound text are excluded. The earliest inbound contact breaks a tie.
+- Missing inbound text is treated as normal. It produces a neutral `Not observed` use-case state rather than being interpreted as negative intent; available text can still strengthen or weaken company qualification.
+- Self-serve accounts always appear at the bottom of operational lists, regardless of the selected score, waiting-time, name, or inbound-time sort. The chosen ordering is preserved within the sales-work and self-serve tiers.
 - The highest-scoring eligible accounts are assigned up to total team capacity. Accounts remaining in that set retain their owner where individual capacity allows; accounts falling below the cutoff return to the queue.
 - Capacity is counted by active account, not by individual contact.
 - The salesperson workspace shows one row per account. Marking a bundled account Success or Rejected closes all of its contact records, releases exactly one capacity slot, and assigns that slot to the highest-scoring eligible unassigned account.
