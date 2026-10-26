@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  growth:
+    name: Inbound Triage Copilot
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: growth/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r growth/requirements.txt
+      - name: Compile application
+        run: python -m py_compile growth/Inbound_Command_Center.py growth/pages/1_Sales_Workspace.py growth/lead_engine.py growth/call_prep.py
+      - name: Run tests
+        run: python -m unittest discover -s growth/tests -t .
+
+  use-case-discovery:
+    name: TabPFN Use-Case Discovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tabpfn-usecase-discovery/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r tabpfn-usecase-discovery/requirements.txt
+      - name: Run tests
+        run: python -m pytest -q tabpfn-usecase-discovery/tests

@@ -28,7 +28,7 @@ update_lead_progress = lead_engine.update_lead_progress
 
 
 st.set_page_config(
-    page_title="Prior Labs — Sales Workspace",
+    page_title="Inbound Triage Copilot — Sales Workspace",
     page_icon="👤",
     layout="wide",
 )
@@ -83,7 +83,7 @@ if "contact_waiting" not in lead_view.columns:
     else:
         lead_view["contact_waiting"] = lead_view.get("waiting", "Not available")
 
-st.markdown('<div class="workspace-label">Prior Labs · Sales</div>', unsafe_allow_html=True)
+st.markdown('<div class="workspace-label">Community prototype · Sales</div>', unsafe_allow_html=True)
 st.title("My lead workspace")
 st.caption("Work the highest-priority assigned accounts and record evidence-rich outcomes.")
 
@@ -405,7 +405,7 @@ if len(portfolio):
             )
             join_url = st.text_input(
                 "Join URL",
-                value=f"https://meet.google.com/lookup/prior-{lead_id.lower()}",
+                value=f"https://example.com/meet/{lead_id.lower()}",
                 key=f"join_url_{lead_id}",
             )
             if st.button("Book demo meeting", width="stretch", key=f"book_{lead_id}"):

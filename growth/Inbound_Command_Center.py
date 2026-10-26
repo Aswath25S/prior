@@ -1,4 +1,3 @@
-
 import importlib
 
 import pandas as pd
@@ -23,7 +22,7 @@ persist_owner_assignments = lead_engine.persist_owner_assignments
 record_calendly_invites = lead_engine.record_calendly_invites
 
 st.set_page_config(
-    page_title="Prior Labs — Inbound Triage Copilot",
+    page_title="Inbound Triage Copilot",
     page_icon="⚡",
     layout="wide",
 )
@@ -143,7 +142,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="eyebrow">Prior Labs · Commercial operations</div>', unsafe_allow_html=True)
+st.markdown('<div class="eyebrow">Community prototype · Commercial operations</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero-title">Inbound command center</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="hero-copy">Balance opportunity quality with response time, know who owns each lead, and move every company to a clear next step.</div>',

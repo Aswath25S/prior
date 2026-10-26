@@ -1,47 +1,126 @@
-# Prior: small applied AI prototypes
+# Applied AI Workflow Prototypes
 
-This repository contains two independent Streamlit prototypes exploring practical workflows around AI and data. They were built as learning and interview projects. They are not production systems, and their sample records are fictional or synthetic.
+[![CI](https://github.com/Aswath25S/prior/actions/workflows/ci.yml/badge.svg)](https://github.com/Aswath25S/prior/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+
+This repository contains two independent, runnable Streamlit projects for exploring applied AI workflows around commercial operations and tabular data. Both projects are designed as transparent starting points: the sample data is fictional or synthetic, the important decisions are visible in code, and contributors can run useful local versions without API credentials.
+
+> **Project status:** experimental. These applications are suitable for learning, prototyping, and extension—not as production systems or systems of record.
 
 ## Projects
 
-### Inbound Triage Copilot (`growth/`)
+| Project | What it explores | External services required? |
+| --- | --- | --- |
+| [Inbound Triage Copilot](growth/README.md) | Account resolution, explainable lead prioritization, capacity-aware assignment, outcome tracking, and optional AI call preparation | No. OpenAI call preparation is optional. |
+| [TabPFN Use-Case Discovery Engine](tabpfn-usecase-discovery/README.md) | Local CSV profiling, use-case discovery, readiness checks, optional objective refinement, and measured TabPFN evaluations | No for discovery. OpenAI refinement and TabPFN evaluation are optional. |
 
-An illustrative commercial workflow for organizing inbound leads, explaining account priorities, assigning limited sales capacity, and recording outcomes. It runs locally with fictional sample leads and needs no API key for its core features.
+The projects share a repository but not application state. You can install and run either one independently.
 
-[Project guide](growth/README.md)
+## Quick start
 
-### TabPFN Use-Case Discovery Engine (`tabpfn-usecase-discovery/`)
+Prerequisites:
 
-A local data exploration app that profiles tabular data, suggests possible prediction tasks, and can run optional evaluations. Its bundled example datasets are synthetic. Optional objective refinement uses OpenAI; optional TabPFN evaluation sends selected data to the TabPFN cloud service after in-app consent.
+- Git
+- Python 3.11 or newer
+- A shell capable of activating a Python virtual environment
 
-[Project guide](tabpfn-usecase-discovery/README.md)
-
-## Getting started
-
-Use Python 3.11 or newer. Each project has its own dependency list; install only the one for the app you want to run.
+Clone the repository and create an isolated environment:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Aswath25S/prior.git
 cd prior
 python -m venv .venv
-source .venv/bin/activate       # Windows PowerShell: .venv\\Scripts\\Activate.ps1
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
+
+Run the inbound triage project:
+
+```bash
 python -m pip install -r growth/requirements.txt
 streamlit run growth/Inbound_Command_Center.py
 ```
 
-For the data discovery app, install `tabpfn-usecase-discovery/requirements.txt` instead and launch `streamlit run tabpfn-usecase-discovery/app.py` from the repository root. See that project's guide for optional API setup and data handling details.
+Or install and run the TabPFN discovery project instead:
 
-## Data and privacy
+```bash
+python -m pip install -r tabpfn-usecase-discovery/requirements.txt
+python tabpfn-usecase-discovery/scripts/generate_sample_data.py
+streamlit run tabpfn-usecase-discovery/app.py
+```
 
-Do not commit private data, API keys, or `.env` files. The committed demo datasets are fictional/synthetic. The triage app can send lead context to OpenAI for call preparation only when configured with an API key. The discovery app processes uploaded data locally for discovery and profiling; optional OpenAI refinement sends descriptions and computed statistics, while optional TabPFN benchmarking can send selected feature and target data to the cloud after explicit consent. Review each project's README before using non-public data.
+Streamlit prints the local URL after launch. API keys are not required for the core local workflows.
 
-## Repository map
+## Repository layout
 
 ```text
-growth/                       Inbound Triage Copilot
-tabpfn-usecase-discovery/     TabPFN Use-Case Discovery Engine
+.
+├── growth/                       # Inbound Triage Copilot
+│   ├── Inbound_Command_Center.py # Main Streamlit entry point
+│   ├── pages/                    # Salesperson workspace
+│   ├── lead_engine.py            # Scoring and assignment rules
+│   ├── call_prep.py              # Optional OpenAI call preparation
+│   └── tests/
+├── tabpfn-usecase-discovery/     # TabPFN Use-Case Discovery Engine
+│   ├── app.py                    # Streamlit entry point
+│   ├── src/                      # Discovery, readiness, and evaluation logic
+│   ├── data/samples/             # Reproducible synthetic datasets
+│   ├── scripts/                  # Dataset generation
+│   └── tests/
+├── docs/ROADMAP.md               # Suggested directions for contributors
+├── CONTRIBUTING.md
+├── SECURITY.md
+└── LICENSE
 ```
+
+## Configuration and privacy
+
+Each project includes an `.env.example`. Copy only the template for the project you are running:
+
+```bash
+cp growth/.env.example growth/.env
+# or
+cp tabpfn-usecase-discovery/.env.example tabpfn-usecase-discovery/.env
+```
+
+Real `.env` files are ignored by Git. Never commit API keys, customer records, proprietary datasets, or exported CRM data.
+
+Data boundaries differ by feature:
+
+- The triage workflow is local unless OpenAI call preparation is configured and invoked.
+- Discovery and profiling are local in the TabPFN app.
+- Optional OpenAI objective refinement sends business context and computed schema/statistics, not raw rows.
+- Optional TabPFN evaluation sends the selected evaluation data only after explicit in-app consent.
+
+Read each project guide before using non-public data.
+
+## Tests
+
+After installing the relevant project dependencies:
+
+```bash
+# Inbound Triage Copilot
+python -m unittest discover -s growth/tests -t .
+
+# TabPFN Use-Case Discovery Engine
+python -m pytest -q tabpfn-usecase-discovery/tests
+```
+
+The GitHub Actions workflow runs both suites on pull requests and pushes to `main`.
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), then review the [roadmap](docs/ROADMAP.md) and the README for the project you want to change. Issues that improve documentation, tests, accessibility, data handling, explainability, or modularity are especially useful.
+
+## Security
+
+Please do not report vulnerabilities or exposed credentials in a public issue. Follow [SECURITY.md](SECURITY.md).
+
+## Independence and trademarks
+
+This is an unofficial community repository. It is not endorsed by or affiliated with Prior Labs. TabPFN and Prior Labs names and trademarks belong to their respective owners. Links to official services or documentation are provided for interoperability and learning.
 
 ## License
 
-No license has been added yet. Until one is chosen, the default copyright rules apply; please don't assume the code is available for reuse. Add a license file before representing this repository as open source.
+Code and repository-authored documentation are available under the [MIT License](LICENSE). Bundled datasets are synthetic and are distributed with this repository under the same license.

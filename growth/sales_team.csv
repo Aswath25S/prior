@@ -1,4 +1,4 @@
 salesperson_id,name,role,region,specialties,weekly_capacity,avatar,calendly_url
-S001,Clara Vogel,Commercial team,Global,General inbound,2,CV,https://calendly.com/clara-vogel-prior/30min
-S002,Marcus Reed,Commercial team,Global,General inbound,3,MR,https://calendly.com/marcus-reed-prior/30min
-S003,Leila Nasser,Commercial team,Global,General inbound,4,LN,https://calendly.com/leila-nasser-prior/30min
+S001,Clara Vogel,Commercial team,Global,General inbound,2,CV,https://example.com/book/clara-vogel
+S002,Marcus Reed,Commercial team,Global,General inbound,3,MR,https://example.com/book/marcus-reed
+S003,Leila Nasser,Commercial team,Global,General inbound,4,LN,https://example.com/book/leila-nasser

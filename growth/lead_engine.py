@@ -8,7 +8,7 @@ import pandas as pd
 
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_VERSION = "2026-10-11-self-serve-last-v26"
+DATA_VERSION = "public-demo-timeline-v27"
 STATUS_ORDER = ["In Progress", "Success", "Rejected"]
 SUCCESS_MILESTONES = ["Commercial win"]
 REJECTION_REASONS = [
@@ -31,9 +31,31 @@ GENERIC_EMAIL_DOMAINS = {"gmail.com", "outlook.com", "hotmail.com", "yahoo.com",
 INDIVIDUAL_ACCOUNT_LABELS = {"independent", "not provided"}
 
 
-def load_leads():
-    """Load fictional demo leads without altering their recorded inbound timestamps."""
-    return pd.read_csv(APP_DIR / "sample_leads.csv")
+def load_leads(*, now=None, rebase_demo_times=True):
+    """Load fictional leads and optionally keep their demo timeline current."""
+    leads = pd.read_csv(APP_DIR / "sample_leads.csv")
+    if not rebase_demo_times:
+        return leads
+
+    received = pd.to_datetime(leads["inbound_time"], utc=True, errors="coerce")
+    if not received.notna().any():
+        return leads
+
+    current_time = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+    if current_time.tzinfo is None:
+        current_time = current_time.tz_localize("UTC")
+    else:
+        current_time = current_time.tz_convert("UTC")
+
+    # Keep the newest fictional record recent while preserving every interval,
+    # ordering relationship, and waiting-time band represented by the fixture.
+    shift = current_time - timedelta(hours=16) - received.max()
+    rebased = received + shift
+    valid = received.notna()
+    leads.loc[valid, "inbound_time"] = rebased.loc[valid].apply(
+        lambda value: value.isoformat()
+    )
+    return leads
 
 
 def load_sales_team():
@@ -298,7 +320,7 @@ def record_calendly_invites(leads, lead_view, sales_team):
         outbox.append({
             "lead_id": assigned_lead["lead_id"],
             "to": email,
-            "subject": f"Book time with {salesperson} at Prior Labs",
+            "subject": f"Book time with {salesperson}",
             "calendly_url": calendly_url,
             "sent_at": sent_at,
             "delivery": "Demo email recorded",

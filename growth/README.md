@@ -1,82 +1,155 @@
-# Prior Labs — Inbound Triage Copilot
+# Inbound Triage Copilot
 
-A lightweight working prototype built voluntarily as additional material for a CEO interview. It demonstrates operating judgment and a testable commercial workflow; it is not presented as a production system or a replacement for Prior Labs' CRM.
+An explainable Streamlit prototype for turning inbound contacts into an account-level priority queue, assigning limited sales capacity, and recording commercial outcomes.
 
-## What it demonstrates
+The project is deliberately rules-based. Its scoring and routing logic is visible in Python, works without external services, and is intended to be inspected, challenged, and recalibrated with real outcome data. Optional OpenAI integration generates call-preparation briefs for booked meetings.
 
-1. A unified account queue across SAP, website, API, GitHub, and other sources, with multiple contacts resolved into one commercial opportunity.
-2. Transparent prioritization on three dimensions:
-   - Commercial potential (0–40)
-   - Buying intent (0–35)
-   - Use-case maturity (0–25)
-3. One account priority score combining lead quality (up to 85 points) with bounded, day-based waiting-time urgency (up to 15 points).
-4. A score-sorted running queue with score-gated assignment and visible supporting contacts.
-5. An explanation panel showing *why* each lead received its score.
-6. Account-level allocation of limited sales capacity; the top-scoring eligible accounts are assigned, and contacts at the same company share one owner and consume one slot.
-7. A separate primary-contact score based only on person-level evidence: authority, role relevance, acquisition source, and contactability.
-8. An illustrative commercial-team view showing workload and capacity.
-9. Editable progress controls for the selected lead.
-10. A form to simulate a new inbound lead live during the demo.
-11. A self-serve rule for leads with quality below 30 that have waited at least 7 days.
-12. Three clear lifecycle statuses: In Progress, Success, and Rejected. Qualified opportunities and evaluations/POCs remain In Progress; Success is reserved for accounts that become customers.
-13. A separate salesperson workspace for reviewing an individual portfolio and updating outcomes.
-14. Automatic demo Calendly emails on assignment, with event-driven meeting status and a future-meeting join button in the salesperson workspace.
-15. Automatic call preparation for booked meetings, using structured OpenAI output when configured and a fact-based fallback otherwise.
-16. Structured outcome capture for qualification milestones, rejection reasons, opportunity stage/value, next action, and score-at-decision.
-17. An outcome-learning view comparing qualification and opportunity creation across inbound sources.
+> **Unofficial prototype:** this project is not affiliated with Prior Labs and is not a replacement for a CRM, marketing-automation system, calendar provider, or email service.
 
-The names in `sales_team.csv` are fictional and exist only to demonstrate the operating workflow. All salespeople are interchangeable in this first version; initial calls are assigned to whoever has the most capacity left.
-Sample arrival times are parsed from their recorded timezone offsets and converted to UTC for calculation; they are never shifted when the app starts. Active waiting time runs from the account's earliest valid inbound timestamp to the current time. Closed accounts stop accumulating waiting time at their recorded outcome time.
-The fixture intentionally includes missing fields, inconsistent company names, shared inboxes, generic emails, approximate sizes, intermediaries, academics, duplicate enterprise contacts, and mostly absent inbound-message text. This makes data-quality assumptions visible during the demo instead of presenting unrealistically clean CRM data.
-Missing fields receive explicit fallbacks such as `Unknown contact`, `Unknown role`, `Not provided`, and `No inbound message provided`; invalid timestamps remain visible as unknown rather than crashing the workflow. Leads without a usable email remain prioritizable but do not generate a simulated Calendly invitation.
+## Features
 
-## Run locally
+- Resolve multiple contacts into a single company opportunity.
+- Rank companies using transparent commercial, intent, use-case, and waiting-time rules.
+- Select a primary contact separately from company qualification.
+- Assign the highest-ranked eligible companies within salesperson capacity.
+- Route old, low-quality opportunities to self-service and keep them at the bottom of work queues.
+- Track `In Progress`, `Success`, and `Rejected` outcomes.
+- Simulate Calendly invitations and meeting lifecycle changes without sending real email.
+- Generate structured call preparation through OpenAI when configured, with a deterministic local fallback.
+- Preserve decision-time scores for later outcome analysis.
+
+All committed names, companies, contact details, activities, and meeting information are fictional.
+
+## Quick start
+
+From the repository root:
 
 ```bash
-cd prior
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r growth/requirements.txt
+python -m venv .venv
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r growth/requirements.txt
 streamlit run growth/Inbound_Command_Center.py
 ```
 
-To enable AI-generated call preparation, set an OpenAI API key before starting Streamlit:
+Streamlit exposes both pages through its page navigation:
+
+- **Inbound Command Center**: account prioritization, team capacity, outcomes, and intake.
+- **Sales Workspace**: salesperson portfolio, meeting state, progress updates, and call preparation.
+
+## Optional OpenAI configuration
+
+The core queue, scoring, assignment, and meeting simulation do not require an API key.
+
+To enable AI-generated call preparation:
 
 ```bash
-export OPENAI_API_KEY="your_api_key_here"
-# Optional: override the default call-preparation model.
-export OPENAI_CALL_PREP_MODEL="gpt-6-astra"
+cp growth/.env.example growth/.env
 ```
 
-Without an API key, the booked-meeting workflow remains fully usable and displays a clearly labelled fact-based brief.
+Then edit the ignored `growth/.env` file:
 
-## Suggested CEO demo flow (5 minutes)
+```dotenv
+OPENAI_API_KEY="your-key"
+OPENAI_CALL_PREP_MODEL="gpt-6-astra"
+```
 
-1. Start on the unified queue and explain the objective:
-   "Protect high-value prospects while removing low-value manual work."
-2. Show that Northstar's SAP and deployment contacts resolve to one account, owner, and capacity slot.
-3. Explain the three quality hypotheses and the bounded, day-based waiting-time component of the final score.
-4. Open Atlas Insurance or Forge Industrial to show why product/open-source activity can reveal enterprise intent.
-5. Open Independent to show an obvious self-serve case.
-6. Show Independent or SmallLabs AI to demonstrate the low-quality + 7-day self-serve rule, then show team workload.
-7. Open the salesperson workspace, choose a rep, and record a structured success or rejection outcome.
-8. Return to the Outcomes tab to show the separate success and rejection histories.
-9. Use "Add a lead" and type a new example live.
-10. End with: "Every sales decision becomes training data for better rules later."
+Restart Streamlit after changing the file. Call preparation uses the Responses API with a strict JSON schema and `store=False`. It sends the selected fictional/demo lead context only when a scheduled or in-progress meeting needs a brief. API failures fall back to a local fact-based brief.
 
-## Important prototype choices
+## How scoring works
 
-- This is **not** a production ML model.
-- AI is limited to optional call preparation in this implementation; routing remains auditable. The prototype does not send prospect data for AI processing unless an API key is deliberately configured. Unstructured intake extraction is a logical production extension, not a demonstrated feature here.
-- The weights are hypotheses and should be calibrated with historical outcomes.
-- Lead quality contributes up to 85 points and waiting time up to 15, allowing urgency to affect queue order without dominating commercial evidence.
-- Primary-contact selection is independent of company qualification. It scores authority (45), role relevance (25), acquisition source (20), and contactability (10); company-level signals and inbound text are excluded. The earliest inbound contact breaks a tie.
-- Missing inbound text is treated as normal. It produces a neutral `Not observed` use-case state rather than being interpreted as negative intent; available text can still strengthen or weaken company qualification.
-- Self-serve accounts always appear at the bottom of operational lists, regardless of the selected score, waiting-time, name, or inbound-time sort. The chosen ordering is preserved within the sales-work and self-serve tiers.
-- The highest-scoring eligible accounts are assigned up to total team capacity. Accounts remaining in that set retain their owner where individual capacity allows; accounts falling below the cutoff return to the queue.
-- Capacity is counted by active account, not by individual contact.
-- The salesperson workspace shows one row per account. Marking a bundled account Success or Rejected closes all of its contact records, releases exactly one capacity slot, and assigns that slot to the highest-scoring eligible unassigned account.
-- Calendly delivery and bookings are simulated in-session for the prototype. Production would connect the same assignment event to an email provider and use Calendly webhooks to supply meeting times, cancellations, and conference URLs.
-- Call preparation is generated only for scheduled or in-progress meetings, cached per lead input, and never treats inferred context as verified company information.
-- Completed outcomes retain the original qualification and priority scores, allowing future analysis to compare the decision-time hypothesis with actual progression.
-- Prototype account resolution uses business email domains and explicit IDs. `Independent` and `Not provided` records always remain individual leads and are never bundled. Production should use CRM account IDs plus reviewed identity-resolution rules.
-- In production this should write decisions, tasks, and outcomes back to the existing CRM/SAP workflow rather than become a parallel system of record.
+The application keeps three concepts separate:
+
+1. **Primary-contact score (0–100)** answers who the salesperson should approach. It uses authority (45), role relevance (25), source (20), and contactability (10). Company size, company activity, number of contacts, and inbound-message content are excluded.
+2. **Qualification score (0–100)** estimates opportunity quality from commercial potential (40), buying intent (35), and use-case maturity (25). A company's qualification score is the highest qualification score among its contacts.
+3. **Priority score (0–100)** controls queue order. Qualification contributes up to 85 points and waiting time contributes up to 15.
+
+Waiting-time points are bounded at day thresholds: 0, 2, 4, 7, 11, or 15. A company becomes self-serve only when its qualification score is below 30 and it has waited at least seven days.
+
+These weights are hypotheses. A production implementation should calibrate them against meetings, qualified opportunities, cycle time, conversion, and revenue—not treat them as universal truth.
+
+## Data model
+
+`sample_leads.csv` contains contact-level input records. Important fields include:
+
+| Field | Meaning |
+| --- | --- |
+| `lead_id` | Stable contact identifier |
+| `name`, `email`, `job_title` | Contact identity and role evidence |
+| `company`, `company_size` | Company-resolution and commercial-potential inputs |
+| `source` | Normalized acquisition source |
+| `inbound_time` | Timezone-aware arrival timestamp |
+| `account_activity_count` | Company activity signal captured with the contact |
+| `inbound_text` | Optional free-text evidence; usually absent in the fixture |
+| `owner_id` | Assigned salesperson or `UNASSIGNED` |
+| `status` | `In Progress`, `Success`, or `Rejected` |
+
+The prototype derives an account identifier primarily from business email domains. Generic email addresses and records labelled `Independent` or `Not provided` remain separate. Production systems should use CRM account IDs and reviewed identity-resolution rules.
+
+Missing fields use explicit conservative fallbacks. Missing inbound text is classified as `Not observed` rather than negative intent. Invalid timestamps remain unknown and contribute no waiting-time points.
+
+To keep the public demo useful over time, `load_leads()` rebases only the bundled fictional timestamps so the newest contact is 16 hours old while preserving every interval and ordering relationship in the CSV. Pass `rebase_demo_times=False` when inspecting the raw fixture. User-created records and timestamps supplied to the scoring engine are never shifted.
+
+## Assignment behavior
+
+- Only active, non-self-serve companies are eligible.
+- Companies are ranked by priority score; earliest inbound time breaks a tie.
+- Each company consumes one capacity slot regardless of contact count.
+- Existing owners are retained when the company remains above the capacity cutoff and that salesperson still has capacity.
+- Remaining selected companies go to the salesperson with the most capacity left.
+- Closing an account releases its slot for the next eligible company.
+
+All UI edits live in Streamlit session state. CSV files are demo fixtures, not a durable database.
+
+## Project structure
+
+```text
+growth/
+├── Inbound_Command_Center.py   # Main Streamlit application
+├── pages/1_Sales_Workspace.py  # Salesperson workflow
+├── lead_engine.py              # Data preparation, scoring, routing, and outcomes
+├── call_prep.py                # Structured OpenAI call prep and local fallback
+├── sample_leads.csv            # Fictional contact fixture
+├── sales_team.csv              # Fictional capacity fixture
+├── requirements.txt
+└── tests/test_lead_engine.py
+```
+
+The UI should consume derived fields from `lead_engine.py`; avoid duplicating scoring or assignment logic inside Streamlit pages.
+
+## Tests
+
+From the repository root:
+
+```bash
+python -m unittest discover -s growth/tests -t .
+```
+
+The tests cover account grouping, capacity allocation, primary-contact selection, missing fields, waiting-time thresholds, self-service routing, meeting state, and outcome updates.
+
+## A useful walkthrough
+
+1. Open the priority queue and inspect a multi-contact company such as ACME or Northstar.
+2. Compare the qualification-driving contact with the selected primary contact.
+3. Review the score explanation and waiting-time contribution.
+4. Inspect team capacity and the unassigned queue.
+5. Open the Sales Workspace, simulate a booking, and update an outcome.
+6. Return to Outcomes to inspect the captured decision record.
+
+## Extension points
+
+Good next contributions include:
+
+- Extract scoring weights and thresholds into validated configuration.
+- Replace CSV/session state with a repository and database layer.
+- Add pluggable CRM identity resolution and deduplication.
+- Add real email/calendar adapters behind explicit interfaces and test doubles.
+- Introduce authentication, authorization, audit logs, and tenant isolation.
+- Calibrate ranking rules with historical outcomes and fairness checks.
+- Add accessibility and end-to-end browser tests.
+
+See the repository [roadmap](../docs/ROADMAP.md) and [contribution guide](../CONTRIBUTING.md).
+
+## Privacy and production limitations
+
+Do not load real customer or prospect information without appropriate authorization and a reviewed data-processing design. The current application lacks durable storage, access control, encryption configuration, deletion workflows, observability, rate limiting, and compliance controls. Simulated email and calendar actions are clearly labelled and do not contact anyone.

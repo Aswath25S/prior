@@ -8,6 +8,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.streamlit/secrets.toml
 
 # OS and editor files
 .DS_Store
@@ -18,4 +19,13 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging and local output
+build/
+dist/
+*.egg-info/
+*.log
 

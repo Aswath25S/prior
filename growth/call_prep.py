@@ -229,7 +229,7 @@ def generate_call_prep(lead):
             model=model,
             store=False,
             instructions=(
-                "You prepare concise B2B sales call briefs for Prior Labs and TabPFN. "
+                "You prepare concise B2B sales call briefs for a team evaluating TabPFN. "
                 "Use only the supplied lead data. Never invent news, company facts, people, metrics, "
                 "competitors, product claims, or previous conversations. Explicitly label uncertain "
                 "interpretations as hypotheses and treat missing information as a discovery gap. "

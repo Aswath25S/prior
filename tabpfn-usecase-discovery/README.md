@@ -1,22 +1,29 @@
 # TabPFN Use-Case Discovery Engine
 
-An unofficial prototype that turns a tabular dataset and business context into a confirmed TabPFN use case, automatic data checks, and an optional measured evaluation. It then directs interested users to official Prior Labs documentation, API access, examples, community support, and contact options. Discovery and profiling run locally. TabPFN cloud inference runs only after explicit user confirmation. The app does not calculate ROI or claim production readiness.
+An extensible Streamlit prototype that turns a tabular dataset and business context into a candidate TabPFN use case, automatic data checks, and an optional measured evaluation. The workflow is designed to make its evidence, heuristics, readiness gaps, and evaluation boundaries visible to users and contributors.
+
+Discovery and profiling run locally. Optional OpenAI refinement sends context and computed schema/statistics without raw rows. TabPFN cloud inference sends selected evaluation data only after explicit user confirmation. The app does not calculate ROI or claim production readiness.
+
+> **Unofficial prototype:** this project is not affiliated with Prior Labs. TabPFN and Prior Labs names and trademarks belong to their respective owners.
 
 ## Run locally
 
-Python 3.11+ is supported (verified here with Python 3.14).
+Python 3.11 or newer is supported. From the repository root:
 
 ```bash
-cd tabpfn-usecase-discovery
-source ../venv/bin/activate
-pip install -r requirements.txt
-python scripts/generate_sample_data.py
-streamlit run app.py
+python -m venv .venv
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r tabpfn-usecase-discovery/requirements.txt
+python tabpfn-usecase-discovery/scripts/generate_sample_data.py
+streamlit run tabpfn-usecase-discovery/app.py
 ```
 
 The app opens at `http://localhost:8501`. Uploaded data stays in the local Streamlit process and is not persisted by application code.
 
-This repository uses the shared `prior/venv` environment. Do not create a second virtual environment inside this project.
+The synthetic datasets are already committed; running the generator verifies that they can be reproduced.
+
+## Optional TabPFN API evaluation
 
 To run the optional TabPFN benchmark, create an API key at `platform.priorlabs.ai/account/api-keys`. Save it in the project's `.env` file:
 
@@ -30,14 +37,12 @@ The prototype uses the configured key for all evaluations; there is no user-faci
 
 ```bash
 export TABPFN_TOKEN="your-token"
-streamlit run app.py
+streamlit run tabpfn-usecase-discovery/app.py
 ```
 
 The benchmark sends the selected training and holdout feature data to the TabPFN cloud service only after the user checks the explicit consent box. Do not use data you are not permitted to share.
 
-## Test
-
-### Optional OpenAI objective refinement
+## Optional OpenAI objective refinement
 
 Add `OPENAI_API_KEY="your-key"` and optionally `OPENAI_MODEL="gpt-4.1-mini"` to the project's ignored `.env`, then restart Streamlit. Use **Refine objective with OpenAI**, review/edit the proposed brief, and click **Use this objective and capability**.
 
@@ -47,11 +52,24 @@ The confirmed primary capability directly routes the automatic assessment, evalu
 
 The proposed feature list is intersected with conservative evaluation defaults; targets and suspected leakage fields are excluded by default. Changing source inputs invalidates the brief and all dependent results.
 
-### Run tests
+## Tests
 
 ```bash
-pytest -q
+python -m pytest -q tabpfn-usecase-discovery/tests
 ```
+
+Tests do not require live OpenAI or TabPFN credentials.
+
+## Workflow
+
+1. Choose a bundled synthetic dataset or upload a CSV.
+2. Describe the industry, business objective, available data, and optional target.
+3. Confirm or edit a locally suggested or AI-refined objective.
+4. Review the recommended capability, readiness checks, and data warnings.
+5. Optionally run a consent-gated evaluation and inspect measured results.
+6. Follow links to official documentation and next steps.
+
+Changes to the dataset or source context invalidate dependent recommendations and results, preventing stale evaluations from being presented as current.
 
 ## Architecture
 
@@ -67,6 +85,21 @@ pytest -q
 - `src/result_views.py`: model comparison tables, individual SHAP waterfalls, and downloads.
 - `src/shap_explanations.py`: exact or permutation-estimated empirical interventional Shapley values for the API model.
 - `scripts/generate_sample_data.py`: reproducible synthetic equipment-failure, retail-demand, and financial payment time-series examples.
+
+The Streamlit app should coordinate state and presentation. Put reusable discovery, profiling, evaluation, and rendering behavior in `src/` and cover it with focused tests.
+
+## Extension points
+
+Useful contribution paths include:
+
+- Add a synthetic dataset with documented generation assumptions and reproducibility tests.
+- Extend the explicit use-case catalog without adding opaque model-driven routing.
+- Add a new readiness check with a user-facing explanation and unit tests.
+- Add a leakage-safe evaluation strategy for a clearly defined data shape.
+- Extract a stable UI-independent interface for discovery and evaluation.
+- Improve accessibility, result interpretation, and downloadable reports.
+
+Large changes to data transmission, persistence, automatic API calls, or production-readiness claims require design discussion first. See the repository [roadmap](../docs/ROADMAP.md) and [contribution guide](../CONTRIBUTING.md).
 
 ## Built-in example datasets
 

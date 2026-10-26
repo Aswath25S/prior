@@ -6,6 +6,7 @@ import pandas as pd
 from growth.lead_engine import (
     build_account_view,
     build_lead_view,
+    load_leads,
     next_lead_id,
     persist_owner_assignments,
     record_calendly_invites,
@@ -207,6 +208,23 @@ class AssignmentStabilityTest(unittest.TestCase):
             "inbound_text": "",
             "source": "Other",
         })["account_type"], "Large enterprise")
+
+    def test_demo_fixture_timeline_rebases_without_changing_relative_intervals(self):
+        now = pd.Timestamp("2028-06-15T12:00:00Z")
+        raw = load_leads(rebase_demo_times=False)
+        rebased = load_leads(now=now)
+        raw_times = pd.to_datetime(raw["inbound_time"], utc=True)
+        rebased_times = pd.to_datetime(rebased["inbound_time"], utc=True)
+
+        self.assertEqual(rebased_times.max(), now - timedelta(hours=16))
+        self.assertEqual(
+            list(raw_times.sort_values().index),
+            list(rebased_times.sort_values().index),
+        )
+        self.assertEqual(
+            raw_times.max() - raw_times.min(),
+            rebased_times.max() - rebased_times.min(),
+        )
 
     def test_primary_contact_score_ignores_company_and_inbound_message(self):
         base = {
